@@ -4,6 +4,7 @@
 #include <linux/bits.h>
 #include <linux/bitmap.h>
 #include <linux/string.h>
+#include <linux/cred.h>	/* current_uid() in susfs_is_current_app_uid() */
 
 /********/
 /* ENUM */
