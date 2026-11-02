@@ -47,34 +47,15 @@ jobs:
       - name: Patch SukiSU for pre-5.10
         run: |
           set -e
-          # builtin unconditionally includes linux/static_call.h, which only exists
-          # from 5.10 on and is never referenced anywhere in the tree. Guard the
-          # include rather than moving the submodule pointer.
           INC=KernelSU/kernel/kernel_includes.h
-          python3 - "$INC" <<'PY'
-import sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
-old = '#include <linux/static_call.h>'
-new = '\n'.join([
-    '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)',
-    '#include <linux/static_call.h>',
-    '#endif',
-])
-if old in s:
-    s = s.replace(old, new)
-    open(p, 'w', encoding='utf-8').write(s)
-    print('guarded static_call.h')
-else:
-    print('static_call.h include not found, nothing to do')
-PY
-          sed -n '72,82p' "$INC"
+          grep -n 'static_call' "$INC" || true
+          sed -i '\|^#include <linux/static_call.h>$|d' "$INC"
+          echo "removed unconditional static_call.h include"
+          grep -c 'static_call' "$INC" || echo "no static_call references left"
 
       - name: Unshallow SukiSU submodule
         run: |
           set -e
-          # SukiSU derives its version from the git commit count; the submodule is
-          # cloned with --depth=1 so unshallow first or the count collapses to 1.
           if [ "$(git -C KernelSU rev-parse --is-shallow-repository)" = "true" ]; then
             git -C KernelSU fetch --unshallow --tags origin builtin
           fi
@@ -96,104 +77,20 @@ PY
 
       - name: Build Image.gz and dtbs
         run: |
-          # SukiSU derives its version from the submodule commit count, which the
-          # unshallow step above makes accurate. SUSFS 2.1.0 is already applied
-          # to the tree and enabled through CONFIG_KSU_SUSFS; KPM through CONFIG_KPM.
+          # SukiSU version comes from the submodule commit count; SUSFS 2.1.0 is
+          # already applied and enabled via CONFIG_KSU_SUSFS, KPM via CONFIG_KPM.
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
 
           # tee masks make's exit status
           [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "ERROR: kernel build failed"; exit 1; }
 
-          echo "--- KernelSU / SUSFS build parameters ---"
+          echo "--- KernelSU / SUSFS ---"
           grep -iE 'kernelsu|susfs|kpm' build.log | head -20 || true
 
-          grep -q 'CONFIG_KSU_SUSFS' out/.config \
-            || { echo "ERROR: SUSFS is not enabled in the built config"; exit 1; }
+          grep -q 'CONFIG_KSU_SUSFS=y' out/.config \
+            || { echo "ERROR: SUSFS not enabled"; exit 1; }
           grep -q 'CONFIG_KPM=y' out/.config \
-            || { echo "ERROR: KPM is not enabled in the built config"; exit 1; }
-          echo "SUSFS and KPM confirmed in out/.config"
-
-      - name: Collect build output
-        run: |
-          ls -la out/arch/arm64/boot/Image.gz out/System.map
-
-      - name: Package AnyKernel3 zip
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 ak3
-          rm -rf ak3/.git ak3/.github
-          cp -f ci/anykernel.sh ak3/anykernel.sh
-          cp -f out/arch/arm64/boot/Image.gz ak3/Image.gz
-          cd ak3
-          zip -r -9 "../odin-ksu-${GITHUB_SHA::12}.zip" . -x "*.git*"
-          cd ..
-          unzip -l "odin-ksu-${GITHUB_SHA::12}.zip" | head -20
-          ls -la odin-ksu-*.zip
-
-      - name: Upload kernel image, dtbs and System.map
-        uses: actions/upload-artifact@v4
-        with:
-          name: odin-kernel-${{ github.sha }}
-          path: |
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/dts/vendor/qcom/*.dtb*
-            out/System.map
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload AnyKernel3 flashable zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: odin-anykernel3-${{ github.sha }}
-          path: odin-ksu-*.zip
-          if-no-files-found: error
-          retention-days: 30
- "$INC"; then
-            sed -i 's|^#include <linux/static_call.h>$|#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif|' "$INC"
-            echo "guarded static_call.h include"
-          fi
-          sed -n '70,82p' "$INC"
-
-      - name: Unshallow SukiSU submodule
-        run: |
-          set -e
-          # SukiSU derives its version from the git commit count; the submodule is
-          # cloned with --depth=1 so unshallow first or the count collapses to 1.
-          if [ "$(git -C KernelSU rev-parse --is-shallow-repository)" = "true" ]; then
-            git -C KernelSU fetch --unshallow --tags origin builtin
-          fi
-          echo "commit count: $(git -C KernelSU rev-list --count HEAD)"
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends bc bison cpio flex libelf-dev libssl-dev libncurses5-dev python3 rsync unzip zip
-
-      - name: Fetch clang prebuilt (LineageOS, r416183b)
-        run: |
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b "$HOME/clang"
-          echo "$HOME/clang/bin" >> "$GITHUB_PATH"
-          "$HOME/clang/bin/clang" --version | head -2
-
-      - name: Configure kernel (odin_defconfig)
-        run: make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 odin_defconfig
-
-      - name: Build Image.gz and dtbs
-        run: |
-          # SukiSU derives its version from the submodule commit count, which the
-          # unshallow step above makes accurate. SUSFS 2.1.0 is already applied
-          # to the tree and enabled through CONFIG_KSU_SUSFS; KPM through CONFIG_KPM.
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
-
-          # tee masks make's exit status
-          [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "ERROR: kernel build failed"; exit 1; }
-
-          echo "--- KernelSU / SUSFS build parameters ---"
-          grep -iE 'kernelsu|susfs|kpm' build.log | head -20 || true
-
-          grep -q 'CONFIG_KSU_SUSFS' out/.config \
-            || { echo "ERROR: SUSFS is not enabled in the built config"; exit 1; }
-          grep -q 'CONFIG_KPM=y' out/.config \
-            || { echo "ERROR: KPM is not enabled in the built config"; exit 1; }
+            || { echo "ERROR: KPM not enabled"; exit 1; }
           echo "SUSFS and KPM confirmed in out/.config"
 
       - name: Collect build output
