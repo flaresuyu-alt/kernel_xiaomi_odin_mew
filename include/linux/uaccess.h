@@ -309,6 +309,16 @@ bool copy_from_kernel_nofault_allowed(const void *unsafe_src, size_t size);
 
 long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
 long notrace copy_to_kernel_nofault(void *dst, const void *src, size_t size);
+/*
+ * Compatibility alias for callers written against the pre-5.8 name.
+ * This tree carries the ACK backport that renamed probe_kernel_write()
+ * to copy_to_kernel_nofault(); out-of-tree modules (KernelSU-Next) still
+ * gate on LINUX_VERSION_CODE and reference the old name.
+ */
+static inline long probe_kernel_write(void *dst, const void *src, size_t size)
+{
+	return copy_to_kernel_nofault(dst, src, size);
+}
 
 long copy_from_user_nofault(void *dst, const void __user *src, size_t size);
 long notrace copy_to_user_nofault(void __user *dst, const void *src,
