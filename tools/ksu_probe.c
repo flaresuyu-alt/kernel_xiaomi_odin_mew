@@ -15,6 +15,7 @@
 #define NR_reboot     142
 #define NR_getuid     174
 #define NR_geteuid    175
+#define NR_setresuid  147
 
 #define KSU_MAGIC1 0xDEADBEEFu
 #define KSU_MAGIC2 0xCAFEBABEu
@@ -106,6 +107,16 @@ void _start(void)
     outdec(syscall4(NR_getuid, 0, 0, 0, 0));
     outs("euid=");
     outdec(syscall4(NR_geteuid, 0, 0, 0, 0));
+
+    /* Drop to the manager app's uid when we start as root. is_manager() is
+     * evaluated per caller from current_uid(), so this is what decides whether
+     * GET_INFO reports KSU_GET_INFO_FLAG_MANAGER. */
+    outs("setresuid(10368) -> ret=");
+    r = syscall4(NR_setresuid, MGROOT_UID, MGROOT_UID, MGROOT_UID, 0);
+    outdec(r);
+    outs("uid now=");
+    outdec(syscall4(NR_getuid, 0, 0, 0, 0));
+    outs("(kerror if -1, errno in -ret)\n");
 
     outs("reboot(0xDEADBEEF,0xCAFEBABE,0,&fd) -> ret=");
     r = syscall4(NR_reboot, (u64)KSU_MAGIC1, (u64)KSU_MAGIC2, 0, (u64)&fd);
