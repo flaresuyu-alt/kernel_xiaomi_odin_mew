@@ -42,16 +42,29 @@ jobs:
         run: |
           ls -la KernelSU/kernel | head -15
           readlink drivers/kernelsu
-          test -f fs/susfs.c && echo "SUSFS 2.1.0 present"
+          test -f fs/susfs.c && grep -q 'SUSFS_VERSION "v2.3.0"' include/linux/susfs.h && echo "SUSFS 2.3.0 present"
 
       - name: Patch SukiSU for pre-5.10
         run: |
           set -e
+          # SukiSU unconditionally includes a 5.10+ header it never uses.
           INC=KernelSU/kernel/kernel_includes.h
           grep -n 'static_call' "$INC" || true
           sed -i '\|^#include <linux/static_call.h>$|d' "$INC"
           echo "removed unconditional static_call.h include"
           grep -c 'static_call' "$INC" || echo "no static_call references left"
+
+          # SUSFS 2.3.0 drives su-compat through static_branch_likely(),
+          # but SukiSU still declares ksu_su_compat_enabled as a plain bool.
+          SU=KernelSU/kernel/feature/sucompat.c
+          SUH=KernelSU/kernel/feature/sucompat.h
+          sed -i 's/^bool ksu_su_compat_enabled __read_mostly = true;$/DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);/' "$SU"
+          sed -i 's/^extern bool ksu_su_compat_enabled;$/extern struct static_key_true ksu_su_compat_enabled;/' "$SUH"
+          sed -i 's/\*value = ksu_su_compat_enabled ? 1 : 0;/*value = static_key_enabled(\&ksu_su_compat_enabled) ? 1 : 0;/' "$SU"
+          perl -0pi -e 's/^    ksu_su_compat_enabled = enable;$/    if (enable)\n        static_branch_enable(\&ksu_su_compat_enabled);\n    else\n        static_branch_disable(\&ksu_su_compat_enabled);/m' "$SU"
+          sed -i 's/if (!ksu_su_compat_enabled)/if (!static_key_enabled(\&ksu_su_compat_enabled))/' "$SU"
+          echo '--- su_compat static key conversion ---'
+          grep -n 'ksu_su_compat_enabled' "$SU" "$SUH"
 
       - name: Unshallow SukiSU submodule
         run: |
@@ -77,7 +90,7 @@ jobs:
 
       - name: Build Image.gz and dtbs
         run: |
-          # SukiSU version comes from the submodule commit count; SUSFS 2.1.0 is
+          # SukiSU version comes from the submodule commit count; SUSFS 2.3.0 is
           # already applied and enabled via CONFIG_KSU_SUSFS, KPM via CONFIG_KPM.
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
 
