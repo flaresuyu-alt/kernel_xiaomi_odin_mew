@@ -11,6 +11,9 @@ on:
   push:
     branches:
       - lineage-24.0
+    paths-ignore:
+      - 'tools/**'
+      - '.github/workflows/build-probe.yml'
 
 concurrency:
   group: build-${{ github.ref }}
@@ -42,49 +45,16 @@ jobs:
         run: |
           ls -la KernelSU/kernel | head -15
           readlink drivers/kernelsu
-          test -f fs/susfs.c && grep -q 'SUSFS_VERSION "v2.3.0"' include/linux/susfs.h && echo "SUSFS 2.3.0 present"
+          test -f fs/susfs.c && echo "SUSFS 2.1.0 present"
 
       - name: Patch SukiSU for pre-5.10
         run: |
           set -e
-          # SukiSU unconditionally includes a 5.10+ header it never uses.
           INC=KernelSU/kernel/kernel_includes.h
           grep -n 'static_call' "$INC" || true
           sed -i '\|^#include <linux/static_call.h>$|d' "$INC"
           echo "removed unconditional static_call.h include"
           grep -c 'static_call' "$INC" || echo "no static_call references left"
-
-          # SUSFS 2.3.0 drives su-compat through static_branch_likely(),
-          # but SukiSU still declares ksu_su_compat_enabled as a plain bool.
-          SU=KernelSU/kernel/feature/sucompat.c
-          SUH=KernelSU/kernel/feature/sucompat.h
-          sed -i 's/^bool ksu_su_compat_enabled __read_mostly = true;$/DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);/' "$SU"
-          sed -i 's/^extern bool ksu_su_compat_enabled;$/extern struct static_key_true ksu_su_compat_enabled;/' "$SUH"
-          sed -i 's/\*value = ksu_su_compat_enabled ? 1 : 0;/*value = static_key_enabled(\&ksu_su_compat_enabled) ? 1 : 0;/' "$SU"
-          perl -0pi -e 's/^    ksu_su_compat_enabled = enable;$/    if (enable)\n        static_branch_enable(\&ksu_su_compat_enabled);\n    else\n        static_branch_disable(\&ksu_su_compat_enabled);/m' "$SU"
-          sed -i 's/if (!ksu_su_compat_enabled)/if (!static_key_enabled(\&ksu_su_compat_enabled))/' "$SU"
-          echo '--- su_compat static key conversion ---'
-          grep -n 'ksu_su_compat_enabled' "$SU" "$SUH"
-
-          # SukiSU ships no Kconfig entry for the SUSFS 2.3.0 priority uid
-          # filter, yet its own pkg_observer/dispatch call it unconditionally,
-          # so SUSFS hides the prototypes and the kernel side will not compile.
-          KCFG=KernelSU/kernel/Kconfig
-          if ! grep -q 'KSU_SUSFS_PRIORITY_UID_FILTER' "$KCFG"; then
-            printf '\nconfig KSU_SUSFS_PRIORITY_UID_FILTER\n\tbool "Enable to allow adding user-defined uids that will be hidden from getpriority/setpriority/ioprio_get/ioprio_set syscall"\n\tdepends on KSU_SUSFS\n\tdefault y\n\thelp\n\t  - Allow hiding user-defined uids from syscalls like getpriority/setpriority/ioprio_get/ioprio_set.\n\t  - Effective on all processes with uid >= 10000.\n' >> "$KCFG"
-          fi
-          grep -A2 'config KSU_SUSFS_PRIORITY_UID_FILTER' "$KCFG"
-
-          # struct clocksource gained vdso_clock_mode in 5.10; on 5.4 the same
-          # field lives in archdata.clock_mode (arm64 always selects
-          # ARCH_CLOCKSOURCE_DATA). cpu_spoof.c writes it through this alias so
-          # the 6.18/5.10-only branch keeps compiling.
-          CS=KernelSU/kernel/extension/cpu_spoof.c
-          printf '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#define ksu_curr_cs_vdso_clock_mode(p) ((*(p))->vdso_clock_mode)\n#else\n#define ksu_curr_cs_vdso_clock_mode(p) ((*(p))->archdata.clock_mode)\n#endif\n' > /tmp/ksu_cs_mode.h
-          sed -i '\|^#include <linux/version.h>$|r /tmp/ksu_cs_mode.h' "$CS"
-          sed -i 's|(\*curr_cs_ptr)->vdso_clock_mode|ksu_curr_cs_vdso_clock_mode(curr_cs_ptr)|' "$CS"
-          echo '--- cpu_spoof clocksource shim ---'
-          grep -n 'ksu_curr_cs_vdso_clock_mode' "$CS"
 
       - name: Unshallow SukiSU submodule
         run: |
@@ -110,7 +80,7 @@ jobs:
 
       - name: Build Image.gz and dtbs
         run: |
-          # SukiSU version comes from the submodule commit count; SUSFS 2.3.0 is
+          # SukiSU version comes from the submodule commit count; SUSFS 2.1.0 is
           # already applied and enabled via CONFIG_KSU_SUSFS, KPM via CONFIG_KPM.
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
 
@@ -124,8 +94,6 @@ jobs:
             || { echo "ERROR: SUSFS not enabled"; exit 1; }
           grep -q 'CONFIG_KPM=y' out/.config \
             || { echo "ERROR: KPM not enabled"; exit 1; }
-          grep -q 'CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y' out/.config \
-            || { echo "ERROR: SUSFS priority uid filter not enabled"; exit 1; }
           echo "SUSFS and KPM confirmed in out/.config"
 
       - name: Collect build output
