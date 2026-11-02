@@ -156,7 +156,50 @@ void _start(void)
         }
     }
 
-    /* also report the always-allowed GET_FULL_VERSION if we can guess it */
+    /* KSU_IOCTL_GET_FULL_VERSION = _IOC(_IOC_READ, 'K', 100, 0); perm always_allow.
+     * The driver fills a 255-byte full version string, e.g.
+     * v4.3.0-<shortsha>@<branch>. This is what the manager compares against. */
+    {
+        unsigned long req = IOC(2, 'K', 100, 0);
+        int k, len = 0;
+        for (k = 0; k < 256; k++)
+            buf[k] = 0;
+        r = syscall4(NR_ioctl, (u64)fd, req, (u64)buf, 0);
+        outs("GET_FULL_VERSION req=");
+        outhex(req);
+        outs("                 ret=");
+        outdec(r);
+        if (r == 0) {
+            while (len < 200 && buf[len])
+                len++;
+            outs("                 string(len=");
+            outdec(len);
+            outs("): ");
+            out(buf, (u64)len);
+            outs("\n");
+        }
+    }
+
+    /* KSU_IOCTL_HOOK_TYPE = _IOC(_IOC_READ, 'K', 101, 0); perm manager_or_root,
+     * so uid 2000 is expected to be refused. */
+    {
+        unsigned long req = IOC(2, 'K', 101, 0);
+        r = syscall4(NR_ioctl, (u64)fd, req, (u64)buf, 0);
+        outs("GET_HOOK_TYPE req=");
+        outhex(req);
+        outs("             ret=");
+        outdec(r);
+        outs("             (0 => this uid is manager or root; -1/-13 => refused)\n");
+        if (r == 0) {
+            int k, len = 0;
+            while (len < 64 && buf[len])
+                len++;
+            outs("             hook_type: ");
+            out(buf, (u64)len);
+            outs("\n");
+        }
+    }
+
     syscall4(NR_exit_group, 0, 0, 0, 0);
     for (;;)
         ;
