@@ -36,6 +36,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          submodules: recursive
+
+      - name: Verify KernelSU-Next sources
+        run: |
+          ls -la KernelSU-Next/kernel | head -15
+          readlink drivers/kernelsu
 
       - name: Install build dependencies
         run: |
