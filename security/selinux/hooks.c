@@ -106,7 +106,14 @@
 #ifdef CONFIG_QCOM_RTIC
 struct selinux_state selinux_state __rticdata;
 #ifdef CONFIG_KSU_SUSFS
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 extern bool ksu_selinux_hide_running __read_mostly;
+#else
+/* SukiSU builds feature/selinux_hide.c on 5.10+ only, so the SUSFS
+ * wrappers that hang off its running flag stay inactive here. */
+#define ksu_selinux_hide_running false
+#endif
 extern int susfs_security_context_to_sid(struct selinux_state *state,
 			    const char *scontext, u32 scontext_len, u32 *sid,
 			    gfp_t gfp);

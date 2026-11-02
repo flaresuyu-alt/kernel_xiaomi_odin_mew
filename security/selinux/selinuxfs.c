@@ -42,11 +42,18 @@
 #include "conditional.h"
 
 #ifdef CONFIG_KSU_SUSFS
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 extern struct page *fake_status;
 extern struct static_key_false fake_status_initialize_key;
 extern bool ksu_selinux_hide_running __read_mostly;
 extern bool ksu_selinux_hide_enabled __read_mostly;
 extern void initialize_fake_status(void);
+#else
+/* SukiSU builds feature/selinux_hide.c on 5.10+ only, so the SUSFS
+ * wrappers that hang off its running flag stay inactive here. */
+#define ksu_selinux_hide_running false
+#endif
 extern int susfs_security_context_str_to_sid(struct selinux_state *state,
 				const char *scontext, u32 *sid, gfp_t gfp);
 extern void susfs_security_compute_av_user(struct selinux_state *state,
@@ -237,6 +244,7 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 	struct page    *status = selinux_kernel_status_page(fsi->state);
 
 #ifdef CONFIG_KSU_SUSFS
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	if (likely(current_uid().val >= 10000 && ksu_selinux_hide_running)) {
 		void *data = fake_status;
 		if (data) {
@@ -244,6 +252,7 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 			return 0;
 		}
 	}
+#endif
 #endif // #ifdef CONFIG_KSU_SUSFS
 
 	if (!status)
@@ -252,10 +261,12 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 	filp->private_data = status;
 
 #ifdef CONFIG_KSU_SUSFS
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	if (static_branch_unlikely(&fake_status_initialize_key)) {
 		if (!fake_status)
 			initialize_fake_status();
 	}
+#endif
 #endif // #ifdef CONFIG_KSU_SUSFS
 	return 0;
 }
