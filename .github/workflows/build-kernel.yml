@@ -45,14 +45,12 @@ jobs:
 
       - name: Unshallow KernelSU-Next submodule
         run: |
-          # Kbuild derives KSU_VERSION from 'git rev-list --count HEAD', but the
-          # submodule is cloned with --depth=1 and its own 'git fetch --unshallow'
-          # fails under Actions' partial clone, leaving the count at 1.
-          # Unshallow here so the count (and the reported version) is real.
-          git -C KernelSU-Next rev-parse --is-shallow-repository
-          git -C KernelSU-Next fetch --unshallow --tags origin legacy || \
-            git -C KernelSU-Next fetch --tags origin legacy
-          git -C KernelSU-Next rev-parse --is-shallow-repository
+          set -e
+          # Kbuild derives KSU_VERSION from the git commit count, but the submodule
+          # is cloned with --depth=1, which collapses the count to 1.
+          if [ "$(git -C KernelSU-Next rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C KernelSU-Next fetch --unshallow --tags origin legacy
+          fi
           echo "commit count: $(git -C KernelSU-Next rev-list --count HEAD)"
 
       - name: Install build dependencies
@@ -89,49 +87,6 @@ jobs:
           echo "derived KSU_VERSION: $KSUVER"
           [ "$KSUVER" -gt 33000 ] \
             || { echo "ERROR: KSU_VERSION $KSUVER too low, submodule still shallow"; exit 1; }
-          grep -q 'Manager signature size: 0x3e6' build.log \
-            || { echo "ERROR: unexpected manager signature size"; exit 1; }
-          grep -q '79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7' build.log \
-            || { echo "ERROR: unexpected manager signature hash"; exit 1; }
-
-      - name: Collect build output
-        run: |
-          ls -la out/arch/arm64/boot/Image.gz out/System.map
-
-      - name: Package AnyKernel3 zip
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 ak3
-          rm -rf ak3/.git ak3/.github
-          cp -f ci/anykernel.sh ak3/anykernel.sh
-          cp -f out/arch/arm64/boot/Image.gz ak3/Image.gz
-          cd ak3
-          zip -r -9 "../odin-ksu-${GITHUB_SHA::12}.zip" . -x "*.git*"
-          cd ..
-          unzip -l "odin-ksu-${GITHUB_SHA::12}.zip" | head -20
-          ls -la odin-ksu-*.zip
-
-      - name: Upload kernel image, dtbs and System.map
-        uses: actions/upload-artifact@v4
-        with:
-          name: odin-kernel-${{ github.sha }}
-          path: |
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/dts/vendor/qcom/*.dtb*
-            out/System.map
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload AnyKernel3 flashable zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: odin-anykernel3-${{ github.sha }}
-          path: odin-ksu-*.zip
-          if-no-files-found: error
-          retention-days: 30
-)
-          echo "derived KSU_VERSION: $KSUVER"
-          [ "$KSUVER" -gt 33000 ] \
-            || { echo "ERROR: KSU_VERSION $KSUVER too low, submodule is still shallow"; exit 1; }
           grep -q 'Manager signature size: 0x3e6' build.log \
             || { echo "ERROR: unexpected manager signature size"; exit 1; }
           grep -q '79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7' build.log \
