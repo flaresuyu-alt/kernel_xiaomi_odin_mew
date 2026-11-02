@@ -2044,9 +2044,7 @@ static int watch_one_dir(struct watch_dir *wd)
  * synchronize_srcu on the same SRCU struct, causing a permanent deadlock).
  * Cleanup is deferred to a delayed_work that runs outside the SRCU context.
  */
-static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
-											struct inode *inode, struct inode *dir,
-											const struct qstr *file_name, u32 cookie)
+static int susfs_sdcard_inode_event(u32 mask, const struct qstr *file_name)
 {
 	if (!file_name || file_name->len != 7 ||
 	    memcmp(file_name->name, "Android", 7))
@@ -2061,8 +2059,35 @@ static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
 	return 0;
 }
 
+/*
+ * fsnotify replaced this callback with handle_event() in 5.9; 5.4 still
+ * routes inode marks through handle_event() with the group as the first
+ * argument. Keep one shared body and two thin shims.
+ */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+static int susfs_handle_sdcard_inode_event(struct fsnotify_mark *mark, u32 mask,
+											struct inode *inode, struct inode *dir,
+											const struct qstr *file_name, u32 cookie)
+{
+	return susfs_sdcard_inode_event(mask, file_name);
+}
+#else
+static int susfs_handle_sdcard_inode_event(struct fsnotify_group *group,
+											struct inode *inode, u32 mask,
+											const void *data, int data_type,
+											const struct qstr *file_name, u32 cookie,
+											struct fsnotify_iter_info *iter_info)
+{
+	return susfs_sdcard_inode_event(mask, file_name);
+}
+#endif
+
 static const struct fsnotify_ops fsnotify_ops = {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	.handle_inode_event = susfs_handle_sdcard_inode_event,
+#else
+	.handle_event = susfs_handle_sdcard_inode_event,
+#endif
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask,
