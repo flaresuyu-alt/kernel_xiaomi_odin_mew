@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    name: arm64 kernel (odin_defconfig, clang r416183b)
+    name: arm64 kernel (odin_defconfig, AOSP clang r574158)
     runs-on: ${{ github.event.inputs.runner || 'ubuntu-22.04' }}
     timeout-minutes: 355
 
@@ -99,11 +99,21 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends bc bison cpio flex libelf-dev libssl-dev libncurses5-dev python3 rsync unzip zip
 
-      - name: Fetch clang prebuilt (LineageOS, r416183b)
+      - name: Fetch clang prebuilt (AOSP r574158)
         run: |
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b "$HOME/clang"
+          set -e
+          # The vendor DLKM set is built against AOSP clang r574158 (clang 21,
+          # Android build 14475230). genksyms derives CONFIG_MODVERSIONS CRCs
+          # from the preprocessed token stream, so a different clang produces
+          # different CRCs and every vendor module refuses to load.
+          SHA=0de484af3d9532df3a4a6023c408ecc436df23a3
+          URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/${SHA}/clang-r574158.tar.gz"
+          mkdir -p "$HOME/clang"
+          curl -sSL --retry 3 --retry-delay 5 -o /tmp/clang.tar.gz "$URL"
+          tar -xzf /tmp/clang.tar.gz -C "$HOME/clang"
+          rm -f /tmp/clang.tar.gz
           echo "$HOME/clang/bin" >> "$GITHUB_PATH"
-          "$HOME/clang/bin/clang" --version | head -2
+          "$HOME/clang/bin/clang" --version | head -3
 
       - name: Configure kernel (odin_defconfig)
         run: make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 odin_defconfig
