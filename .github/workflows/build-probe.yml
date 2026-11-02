@@ -1,0 +1,38 @@
+name: Build ksu probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/ksu_probe.c'
+      - '.github/workflows/build-probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch clang prebuilt (LineageOS, r416183b)
+        run: |
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b "$HOME/clang"
+          echo "$HOME/clang/bin" >> "$GITHUB_PATH"
+          "$HOME/clang/bin/clang" --version | head -2
+
+      - name: Build freestanding aarch64 probe
+        run: |
+          set -e
+          CC="$HOME/clang/bin/clang"
+          "$CC" --target=aarch64-linux-gnu -O2 -nostdlib -nostartfiles -static \
+            -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
+            -Wl,--build-id=none -e _start \
+            -o ksu_probe tools/ksu_probe.c
+          ls -la ksu_probe
+          file ksu_probe || true
+          "$HOME/clang/bin/llvm-readelf" -h ksu_probe | head -20 || true
+
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ksu-probe
+          path: ksu_probe
