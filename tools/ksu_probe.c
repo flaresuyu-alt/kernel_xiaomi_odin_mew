@@ -112,7 +112,7 @@ void _start(void)
      * evaluated per caller from current_uid(), so this is what decides whether
      * GET_INFO reports KSU_GET_INFO_FLAG_MANAGER. */
     outs("setresuid(10368) -> ret=");
-    r = syscall4(NR_setresuid, MGROOT_UID, MGROOT_UID, MGROOT_UID, 0);
+    r = syscall4(NR_setresuid, 10368, 10368, 10368, 0);
     outdec(r);
     outs("uid now=");
     outdec(syscall4(NR_getuid, 0, 0, 0, 0));
