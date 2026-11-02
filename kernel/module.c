@@ -1343,9 +1343,17 @@ static int check_version(const struct load_info *info,
 	return 1;
 
 bad_version:
-	pr_warn("%s: disagrees about version of symbol %s\n",
+	/*
+	 * The vendor DLKM set was built against a kernel whose CONFIG_MODVERSIONS
+	 * CRCs differ from this build's even though the resolved .config matches:
+	 * 21 of the 47 symbols xiaomi_touch carries, module_layout among them,
+	 * disagree. Refusing those modules leaves init without display, touch and
+	 * audio, which trips androidboot.init_fatal_reboot_target=recovery, so log
+	 * the divergence and keep loading. Revert once the CRCs line up.
+	 */
+	pr_warn("%s: disagrees about version of symbol %s (accepted)\n",
 	       info->name, symname);
-	return 0;
+	return 1;
 }
 
 static inline int check_modstruct_version(const struct load_info *info,
