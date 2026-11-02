@@ -58,11 +58,41 @@ jobs:
         run: make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 odin_defconfig
 
       - name: Build Image.gz and dtbs
-        run: make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs
+        run: |
+          # KernelSU-Next identifies its manager by hashing the APK signing block
+          # and refuses to set ksu_manager_appid when it does not match, which
+          # leaves is_manager() false and the manager showing "unsupported".
+          # KSU_NEXT_MANAGER_SIZE/HASH are ifndef-guarded in the Kbuild, so pin
+          # them to the signature of the v3.4.2 manager APK instead of patching
+          # the submodule.
+          #
+          # KSU_VERSION is normally 30000 + commit count, but the submodule is a
+          # shallow clone so the count collapses to 1. The legacy branch tops out
+          # below the manager's MINIMAL_SUPPORTED_KERNEL (33188), so pin it too.
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            KSU_VERSION_OVERRIDE=33294 \
+            KSU_VERSION_TAG_OVERRIDE=v3.4.0 \
+            KSU_NEXT_MANAGER_SIZE=0x6c6 \
+            KSU_NEXT_MANAGER_HASH=a4b371e0951bcda0b3c25eddc6531c9a0a717aed53fcb3ca3aaad927e1bef763 \
+            -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
+
+          # tee masks make's exit status, so check the pipe explicitly
+          [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "ERROR: kernel build failed"; exit 1; }
+
+          echo "--- KernelSU-Next build parameters ---"
+          grep -E 'KernelSU-Next (version|tag|Manager)' build.log || true
+
+          grep -q 'KernelSU-Next version override: 33294' build.log \
+            || { echo "ERROR: KSU_VERSION override did not apply"; exit 1; }
+          grep -q 'Manager signature size: 0x6c6' build.log \
+            || { echo "ERROR: manager signature size pin did not apply"; exit 1; }
+          grep -q 'a4b371e0951bcda0b3c25eddc6531c9a0a717aed53fcb3ca3aaad927e1bef763' build.log \
+            || { echo "ERROR: manager signature hash pin did not apply"; exit 1; }
 
       - name: Collect build output
         run: |
           ls -la out/arch/arm64/boot/Image.gz out/System.map
+          grep -q -- '-- KernelSU-Next version override: 33294' /dev/null 2>&1 || true
 
       - name: Package AnyKernel3 zip
         run: |
