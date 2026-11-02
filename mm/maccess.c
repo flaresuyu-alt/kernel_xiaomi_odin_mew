@@ -176,6 +176,18 @@ long copy_to_kernel_nofault(void *dst, const void *src, size_t size)
 	return 0;
 }
 
+/*
+ * Compatibility wrapper for callers written against the pre-5.8 name.
+ * KernelSU-Next maps copy_to_kernel_nofault() back onto this name with a
+ * function-like macro, so this symbol is deliberately not declared in
+ * linux/uaccess.h: the macro would rewrite that declaration as well.
+ */
+long probe_kernel_write(void *dst, const void *src, size_t size)
+{
+	return copy_to_kernel_nofault(dst, src, size);
+}
+EXPORT_SYMBOL_GPL(probe_kernel_write);
+
 /**
  * copy_to_user_nofault(): safely attempt to write to a user-space location
  * @dst: address to write to
