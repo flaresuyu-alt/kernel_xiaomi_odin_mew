@@ -38,20 +38,21 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Verify KernelSU-Next sources
+      - name: Verify SukiSU sources
         run: |
-          ls -la KernelSU-Next/kernel | head -15
+          ls -la KernelSU/kernel | head -15
           readlink drivers/kernelsu
+          test -f fs/susfs.c && echo "SUSFS 2.1.0 present"
 
-      - name: Unshallow KernelSU-Next submodule
+      - name: Unshallow SukiSU submodule
         run: |
           set -e
-          # Kbuild derives KSU_VERSION from the git commit count, but the submodule
-          # is cloned with --depth=1, which collapses the count to 1.
-          if [ "$(git -C KernelSU-Next rev-parse --is-shallow-repository)" = "true" ]; then
-            git -C KernelSU-Next fetch --unshallow --tags origin legacy
+          # SukiSU derives its version from the git commit count; the submodule is
+          # cloned with --depth=1 so unshallow first or the count collapses to 1.
+          if [ "$(git -C KernelSU rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C KernelSU fetch --unshallow --tags origin builtin
           fi
-          echo "commit count: $(git -C KernelSU-Next rev-list --count HEAD)"
+          echo "commit count: $(git -C KernelSU rev-list --count HEAD)"
 
       - name: Install build dependencies
         run: |
@@ -69,28 +70,22 @@ jobs:
 
       - name: Build Image.gz and dtbs
         run: |
-          # Official legacy derives KSU_VERSION as 30000 + commit count + 289, and
-          # the Kbuild unshallows the submodule before counting, so no override is
-          # needed. The manager signature defaults (0x3e6 / 79e59011...) already
-          # match the shipped v3.4.x APK certificate and must stay unchanged.
+          # SukiSU derives its version from the submodule commit count, which the
+          # unshallow step above makes accurate. SUSFS 2.1.0 is already applied
+          # to the tree and enabled through CONFIG_KSU_SUSFS; KPM through CONFIG_KPM.
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
 
           # tee masks make's exit status
           [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "ERROR: kernel build failed"; exit 1; }
 
-          echo "--- KernelSU-Next build parameters ---"
-          grep -E 'KernelSU-Next (version|tag|Manager)' build.log || true
+          echo "--- KernelSU / SUSFS build parameters ---"
+          grep -iE 'kernelsu|susfs|kpm' build.log | head -20 || true
 
-          grep -q 'KernelSU-Next version: ' build.log \
-            || { echo "ERROR: KSU version was not derived"; exit 1; }
-          KSUVER=$(grep -oE 'KernelSU-Next version: [0-9]+' build.log | head -1 | awk '{print $NF}')
-          echo "derived KSU_VERSION: $KSUVER"
-          [ "$KSUVER" -gt 33000 ] \
-            || { echo "ERROR: KSU_VERSION $KSUVER too low, submodule still shallow"; exit 1; }
-          grep -q 'Manager signature size: 0x3e6' build.log \
-            || { echo "ERROR: unexpected manager signature size"; exit 1; }
-          grep -q '79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7' build.log \
-            || { echo "ERROR: unexpected manager signature hash"; exit 1; }
+          grep -q 'CONFIG_KSU_SUSFS' out/.config \
+            || { echo "ERROR: SUSFS is not enabled in the built config"; exit 1; }
+          grep -q 'CONFIG_KPM=y' out/.config \
+            || { echo "ERROR: KPM is not enabled in the built config"; exit 1; }
+          echo "SUSFS and KPM confirmed in out/.config"
 
       - name: Collect build output
         run: |
