@@ -200,6 +200,44 @@ void _start(void)
         }
     }
 
+    /* Root-only queries, from the driver's own IOCTL dump in dmesg:
+     *   GET_MANAGER_APPID = 0x80004b0a   (struct { u32 appid; })
+     *   GET_HOOK_MODE     = 0x80004b62
+     *   GET_VERSION_TAG   = 0x80004b63
+     * -1 appid means the driver never crowned a manager, which makes
+     * is_manager() false for everyone and is exactly what a manager shows
+     * as "no SukiSU driver on this kernel". */
+    {
+        struct { unsigned long req; const char *name; int words; } q[3];
+        int i2, j;
+        q[0].req = (unsigned long)IOC(2, 'K', 0x0a, 0); q[0].name = "GET_MANAGER_APPID"; q[0].words = 1;
+        q[1].req = (unsigned long)IOC(2, 'K', 0x62, 0); q[1].name = "GET_HOOK_MODE";     q[1].words = 1;
+        q[2].req = (unsigned long)IOC(2, 'K', 0x63, 0); q[2].name = "GET_VERSION_TAG";   q[2].words = 4;
+        for (i2 = 0; i2 < 3; i2++) {
+            for (j = 0; j < 64; j++)
+                buf[j] = 0;
+            r = syscall4(NR_ioctl, (u64)fd, q[i2].req, (u64)buf, 0);
+            outs(q[i2].name);
+            outs(" req=");
+            outhex(q[i2].req);
+            outs("          ret=");
+            outdec(r);
+            if (r == 0) {
+                unsigned int *w = (unsigned int *)buf;
+                for (j = 0; j < q[i2].words; j++) {
+                    outs("          [");
+                    outdec(j);
+                    outs("]=");
+                    outhex(w[j]);
+                }
+                if (i2 == 0)
+                    outs("          (-1 = no manager crowned => is_manager() false for all)\n");
+                if (i2 == 1)
+                    outs("          (0 = raw syscall table, 1 = kprobe, 2 = inline hook, 3 = manual)\n");
+            }
+        }
+    }
+
     syscall4(NR_exit_group, 0, 0, 0, 0);
     for (;;)
         ;
