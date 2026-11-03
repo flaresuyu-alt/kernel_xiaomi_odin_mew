@@ -495,18 +495,42 @@ SUSFS 声明与 RTIC 无关。已移出。
 
 ---
 
-## 7.4 待验证事项
+## 7.4 验证结果
 
-以下需真机或完整编译才能确认：
+### 7.4.1 编译验证 —— **通过**
 
-1. **编译通过**：本次改动涉及 4 个内核文件 + 6 个子模块文件，
-   尚未做完整 `make`。风险点：
-   - `selinuxfs.c` 中 `handle_sel_write_*` 在 5.4 上现在会被实际调用，
-     需确认 `susfs_sel_write_*` 的符号在 `CONFIG_KSU_SUSFS` 下都可见
-   - `hooks.c` 中 `susfs_selinux_setprocattr` 同理
-2. **SELinux 隐藏效果**：刷入后用 Momo 等工具验证类型存在性探测是否被拦截
-3. **静态键行为**：`ksu_su_compat_enabled` 默认 `true`，
+CI run #34（`3fdbacbaac63`），15 分钟，**conclusion: success**。
+
+| 检查项 | 结果 |
+|---|---|
+| 补丁应用 | 6 个文件全部 "Applied ... cleanly" |
+| 5 项校验 | "all five pre-5.10 adaptations present" |
+| `SUSFS_VERSION` | v2.3.0 |
+| `KPM is enabled` | 是（仅指 CONFIG_KPM=y，功能仍不工作，见 7.3） |
+| undefined reference | **0** |
+| 与本次改动相关的警告 | **0** |
+| 产物 | `Image.gz` 17.8MB、`System.map` 9.1MB、AnyKernel3 zip 19.9MB |
+
+产物地址：
+- `odin-anykernel3-3fdbacbaac63...`（19.9MB）
+- `odin-kernel-3fdbacbaac63...`（20.4MB）
+
+**结论**：7.2.1 中担心的两个风险点（`susfs_sel_write_*` 与
+`susfs_selinux_setprocattr` 在 5.4 上是否可见）**已排除**——编译期符号解析全部通过。
+
+日志中另有 10 条警告，均与本次改动无关：
+- `fs/readdir.c` × 3：ISO C90 声明位置（SUSFS 移植带来的既有问题）
+- `rules.c:154` × 4：`old_pol`/`pol` 未使用（5.4 分支既有现象，
+  这两个变量只在 ≥5.10 分支使用）
+- `thermal_core.c` × 3：`snprintf` 尺寸（厂商代码既有问题）
+
+### 7.4.2 仍需真机验证
+
+1. **SELinux 隐藏效果**：刷入后用 Momo / YASNAC 等验证类型存在性探测是否被拦截
+2. **静态键行为**：`ksu_su_compat_enabled` 默认 `true`，
    管理器关闭 su_compat 后应能正确 disable
+3. **SukiSU 管理器状态**：确认能正常显示"已工作"（`susfs_set_batch_sid()`
+   的 backport 生效后，管理器应能拿到 `[ksu_driver]` fd）
 
 ---
 
