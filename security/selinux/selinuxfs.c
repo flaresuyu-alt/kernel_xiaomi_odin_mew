@@ -44,15 +44,21 @@
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/version.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+/* The status page spoof genuinely needs SukiSU's selinux_hide.c, which only
+ * builds on 5.10+: it swaps selinux_state->status_page for fake_status. */
 extern struct page *fake_status;
 extern struct static_key_false fake_status_initialize_key;
 extern bool ksu_selinux_hide_running __read_mostly;
 extern bool ksu_selinux_hide_enabled __read_mostly;
 extern void initialize_fake_status(void);
 #else
-/* SukiSU builds feature/selinux_hide.c on 5.10+ only, so the SUSFS
- * wrappers that hang off its running flag stay inactive here. */
-#define ksu_selinux_hide_running false
+/* No status page spoof on 5.4, but the /context and /access write wrappers
+ * below only use susfs_security_context_str_to_sid() and
+ * susfs_security_compute_av_user(), both fully implemented for 5.4 in
+ * ss/services.c. Keep their gate open so type-existence probes still fail
+ * with -EINVAL for SUS types instead of being answered from the real policy.
+ */
+#define ksu_selinux_hide_running true
 #endif
 extern int susfs_security_context_str_to_sid(struct selinux_state *state,
 				const char *scontext, u32 *sid, gfp_t gfp);

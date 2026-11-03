@@ -106,6 +106,9 @@ patches-*
 # quilt's files
 patches
 series
+# ...but this tree keeps its own SukiSU patch set under patches/, so let it in.
+!/patches/
+!/patches/**/*.patch
 
 # cscope files
 cscope.*

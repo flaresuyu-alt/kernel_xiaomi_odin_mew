@@ -204,7 +204,15 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 		error = vfs_getattr(&f.file->f_path, stat,
 				    request_mask, query_flags);
 #ifdef CONFIG_KSU_SUSFS
-		if (static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
+		/*
+		 * ksu_handle_vfs_fstat() does *size += ksu_rc_len, so it must
+		 * only run on a successfully filled kstat. On failure stat->size
+		 * is either untouched (vfs_getattr returned before
+		 * vfs_getattr_nosec's memset) or zeroed, and adding the init.rc
+		 * length to it would hand userspace a bogus size.
+		 */
+		if (!error &&
+		    static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
 			ksu_handle_vfs_fstat(fd, &stat->size);
 #endif // #ifdef CONFIG_KSU_SUSFS
 		fdput(f);

@@ -105,22 +105,29 @@
 
 #ifdef CONFIG_QCOM_RTIC
 struct selinux_state selinux_state __rticdata;
+#else
+struct selinux_state selinux_state;
+#endif
+
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/version.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 extern bool ksu_selinux_hide_running __read_mostly;
 #else
-/* SukiSU builds feature/selinux_hide.c on 5.10+ only, so the SUSFS
- * wrappers that hang off its running flag stay inactive here. */
-#define ksu_selinux_hide_running false
+/* SukiSU compiles feature/selinux_hide.c on 5.10+ only because that file
+ * walks the 5.10 selinux_state layout (status_lock, status_page and
+ * struct selinux_policy). The setprocattr wrapper below needs none of it:
+ * susfs_selinux_setprocattr() only calls susfs_security_context_to_sid(),
+ * which is a complete 5.4 implementation in ss/services.c. Keep the gate
+ * open for app uids instead of hardcoding it to false, which turned the
+ * wrapper into dead code and disabled SELinux hiding entirely.
+ */
+#define ksu_selinux_hide_running true
 #endif
 extern int susfs_security_context_to_sid(struct selinux_state *state,
 			    const char *scontext, u32 scontext_len, u32 *sid,
 			    gfp_t gfp);
 #endif // #ifdef CONFIG_KSU_SUSFS
-#else
-struct selinux_state selinux_state;
-#endif
 
 /* SECMARK reference count */
 static atomic_t selinux_secmark_refcount = ATOMIC_INIT(0);

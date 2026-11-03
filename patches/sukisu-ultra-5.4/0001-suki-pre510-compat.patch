@@ -1,0 +1,140 @@
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index db57137..5eb1963 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -124,6 +124,14 @@ config KSU_SUSFS_SUS_MAP
+ 	  - It may not be able to evade detections by apps that implement a good injection detection.
+ 	  - Effective only on zygote/zygote_next spawned user app process that is marked with TIF_PROC_UMOUNTED
+ 
++config KSU_SUSFS_PRIORITY_UID_FILTER
++	bool "Enable to allow adding user-defined uids that will be hidden from getpriority/setpriority/ioprio_get/ioprio_set syscall"
++	depends on KSU_SUSFS
++	default y
++	help
++	  - Allow hiding user-defined uids from syscalls like getpriority/setpriority/ioprio_get/ioprio_set.
++	  - Effective on all processes with uid >= 10000.
++
+ endmenu
+ 
+ endmenu
+diff --git a/kernel/extension/cpu_spoof.c b/kernel/extension/cpu_spoof.c
+index 0007c2f..55a453b 100644
+--- a/kernel/extension/cpu_spoof.c
++++ b/kernel/extension/cpu_spoof.c
+@@ -21,6 +21,17 @@
+ #include <linux/uaccess.h>
+ #include <linux/version.h>
+ 
++/*
++ * struct clocksource gained a top-level vdso_clock_mode in 5.10. On 5.4 the
++ * same field lives in archdata.clock_mode, and arm64 always selects
++ * ARCH_CLOCKSOURCE_DATA, so the field is always present here.
++ */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
++#define ksu_cs_vdso_clock_mode(cs) ((cs)->vdso_clock_mode)
++#else
++#define ksu_cs_vdso_clock_mode(cs) ((cs)->archdata.clock_mode)
++#endif
++
+ 
+ #if defined(CONFIG_ARM64) || defined(__aarch64__)
+ #include <asm/cpu.h>
+@@ -170,7 +181,7 @@ static int set_spoof_cpu(const struct ksu_set_spoof_cpu_cmd *cmd)
+                         (struct clocksource **)find_kernel_symbol_exact(
+                             "curr_clocksource");
+                     if (curr_cs_ptr && *curr_cs_ptr) {
+-                        (*curr_cs_ptr)->vdso_clock_mode =
++                        ksu_cs_vdso_clock_mode(*curr_cs_ptr) =
+                             VDSO_CLOCKMODE_ARCHTIMER;
+                     } else {
+                         pr_warn("ksu: set_spoof_cpu failed to resolve 'curr_clocksource'\n");
+diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
+index f458e56..32fbee4 100644
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -1,7 +1,7 @@
+ #define SU_PATH "/system/bin/su"
+ #define SH_PATH "/system/bin/sh"
+ 
+-bool ksu_su_compat_enabled __read_mostly = true;
++DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);
+ 
+ static const char su_path[] = SU_PATH;
+ static const char sh_path[] = SH_PATH;
+@@ -9,14 +9,17 @@ static const char ksud_path[] = KSUD_PATH;
+ 
+ static int su_compat_feature_get(u64 *value)
+ {
+-    *value = ksu_su_compat_enabled ? 1 : 0;
++    *value = static_key_enabled(&ksu_su_compat_enabled) ? 1 : 0;
+     return 0;
+ }
+ 
+ static int su_compat_feature_set(u64 value)
+ {
+     bool enable = value != 0;
+-    ksu_su_compat_enabled = enable;
++    if (enable)
++        static_branch_enable(&ksu_su_compat_enabled);
++    else
++        static_branch_disable(&ksu_su_compat_enabled);
+     pr_info("su_compat: set to %d\n", enable);
+     return 0;
+ }
+@@ -220,7 +223,7 @@ int ksu_handle_stat(int *dfd, struct filename **filename, int *flags) {
+ #else
+ __attribute__((hot)) static __always_inline bool __is_su_allowed(const void **ptr_to_check)
+ {
+-    if (!ksu_su_compat_enabled)
++    if (!static_key_enabled(&ksu_su_compat_enabled))
+         return false;
+ 
+     if (likely(test_thread_flag(TIF_SECCOMP)))
+diff --git a/kernel/feature/sucompat.h b/kernel/feature/sucompat.h
+index 4bc7437..b47094c 100644
+--- a/kernel/feature/sucompat.h
++++ b/kernel/feature/sucompat.h
+@@ -2,8 +2,9 @@
+ #define __KSU_H_SUCOMPAT
+ #include <asm/ptrace.h>
+ #include <linux/types.h>
++#include <linux/jump_label.h>
+ 
+-extern bool ksu_su_compat_enabled;
++extern struct static_key_true ksu_su_compat_enabled;
+ 
+ #ifdef CONFIG_KSU_SUSFS
+ int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags);
+diff --git a/kernel/kernel_includes.h b/kernel/kernel_includes.h
+index 422fde3..367798a 100644
+--- a/kernel/kernel_includes.h
++++ b/kernel/kernel_includes.h
+@@ -73,7 +73,6 @@
+ #include <linux/vmalloc.h>
+ #include <linux/tty.h>
+ #include <linux/kref.h>
+-#include <linux/static_call.h>
+ #include "arch.h"
+ #ifdef CONFIG_KSU_SUSFS
+ #include <linux/susfs.h>
+diff --git a/kernel/selinux/rules.c b/kernel/selinux/rules.c
+index 3d5b86e..abba866 100644
+--- a/kernel/selinux/rules.c
++++ b/kernel/selinux/rules.c
+@@ -255,6 +255,16 @@ do_stop_machine:
+ out_flush:
+     smp_mb();
+     reset_avc_cache();
++#ifdef CONFIG_KSU_SUSFS
++    /*
++     * The >= 5.10 path above refreshes the cached SUSFS SIDs right after
++     * swapping selinux_state.policy. On 5.4 the policy swap happens here
++     * instead, so this is the equivalent point: without it susfs_zygote_sid
++     * stays 0, ksu_handle_setresuid() never recognises zygote, and the
++     * manager process never receives its [ksu_driver] fd.
++     */
++    susfs_set_batch_sid();
++#endif
+ #endif
+ }
+ 
