@@ -12,6 +12,7 @@
 #include <linux/types.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
+#include <linux/cred.h>
 #include <trace/hooks/signal.h>
 
 static bool rkx_signal_hooked;

@@ -18,6 +18,7 @@
 #include <linux/string.h>
 #include <linux/version.h>
 #include <linux/workqueue.h>
+#include <linux/seq_file.h>
 #include "../android/binder_internal.h"
 
 static unsigned long (*k_kallsyms_lookup_name)(const char* name);

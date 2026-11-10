@@ -14,6 +14,8 @@
 #include <linux/version.h>
 #include <linux/uaccess.h>
 #include <linux/string.h>
+#include <linux/cred.h>
+#include <linux/seq_file.h>
 #include <trace/hooks/binder.h>
 #include "../android/binder_internal.h"
 

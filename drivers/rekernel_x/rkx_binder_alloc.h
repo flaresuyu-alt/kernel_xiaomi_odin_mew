@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 #include <linux/version.h>
+#include <linux/seq_file.h>
 #include "../android/binder_internal.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 0, 0)
