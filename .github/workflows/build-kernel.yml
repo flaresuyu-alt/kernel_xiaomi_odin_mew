@@ -105,33 +105,6 @@ jobs:
             || { echo "ERROR: SUSFS priority uid filter not enabled"; exit 1; }
           echo "SUSFS and KPM confirmed in out/.config"
 
-      - name: Inject KPM supercall hook into kernel image
-        run: |
-          set -e
-          echo "--- Preparing KPM patch_linux tool ---"
-          mkdir -p tools
-          curl -sSL "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o tools/patch_linux
-          echo "5b4984fbe7771925542d27b159278184cf3ce5064dafb751f8a2fb073b922b3f  tools/patch_linux" | sha256sum -c -
-          chmod +x tools/patch_linux
-
-          echo "--- Extracting uncompressed Image ---"
-          if [ ! -f out/arch/arm64/boot/Image ]; then
-            gzip -dc out/arch/arm64/boot/Image.gz > out/arch/arm64/boot/Image
-          fi
-          ls -lh out/arch/arm64/boot/Image
-
-          echo "--- Executing KPM supercall hook injection ---"
-          (
-            cd out/arch/arm64/boot
-            ../../../../tools/patch_linux
-            test -f oImage || { echo "ERROR: patch_linux did not generate oImage"; exit 1; }
-            ls -lh oImage
-            echo "Recompressing patched oImage to Image.gz..."
-            gzip -n -9 -c oImage > Image.gz
-            ls -lh Image.gz
-          )
-          echo "KPM supercall hook successfully injected into Image.gz"
-
       - name: Collect build output
         run: |
           ls -la out/arch/arm64/boot/Image.gz out/System.map
