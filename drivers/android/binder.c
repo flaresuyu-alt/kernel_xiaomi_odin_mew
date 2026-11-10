@@ -3225,6 +3225,11 @@ static void binder_transaction(struct binder_proc *proc,
 		e->to_thread = target_thread->pid;
 	e->to_proc = target_proc->pid;
 
+	if (reply)
+		trace_android_vh_binder_reply(target_proc, proc, thread, tr);
+	else
+		trace_android_vh_binder_trans(target_proc, proc, thread, tr);
+
 	/* TODO: reuse incoming transaction for reply */
 	t = kzalloc(sizeof(*t), GFP_KERNEL);
 	if (t == NULL) {

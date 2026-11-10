@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config REKERNEL_X
+	bool "ReKernel-X Process Freeze & Binder Mitigation"
+	default y
+	help
+	  ReKernel-X monitors and mitigates frozen process transactions,
+	  binder traffic, signals, and network events via Generic Netlink.
+	  Say Y here to build ReKernel-X into the kernel image.
