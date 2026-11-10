@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=LineageOS 24.0 (5.4.302) + SukiSU-Ultra & SUSFS v2.3.0 by M_Kosmos
+kernel.string=LineageOS 24.0 (5.4.302) + SukiSU-Ultra & KPM & SUSFS v2.3.0 by M_Kosmos
 do.devicecheck=1
 do.modules=0
 do.systemless=0

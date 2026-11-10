@@ -338,13 +338,13 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
 		.current_dir = dirent
 	};
 	int error;
-
-	if (!access_ok(dirent, count))
-		return -EFAULT;
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	int path_err = -EINVAL;
 	struct path path;
 #endif
+
+	if (!access_ok(dirent, count))
+		return -EFAULT;
 
 	f = fdget_pos(fd);
 	if (!f.file)
@@ -462,13 +462,13 @@ int ksys_getdents64(unsigned int fd, struct linux_dirent64 __user *dirent,
 		.current_dir = dirent
 	};
 	int error;
-
-	if (!access_ok(dirent, count))
-		return -EFAULT;
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	int path_err = -EINVAL;
 	struct path path;
 #endif
+
+	if (!access_ok(dirent, count))
+		return -EFAULT;
 
 	f = fdget_pos(fd);
 	if (!f.file)
@@ -714,13 +714,13 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
 		.count = count
 	};
 	int error;
-
-	if (!access_ok(dirent, count))
-		return -EFAULT;
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	int path_err = -EINVAL;
 	struct path path;
 #endif
+
+	if (!access_ok(dirent, count))
+		return -EFAULT;
 
 	f = fdget_pos(fd);
 	if (!f.file)
