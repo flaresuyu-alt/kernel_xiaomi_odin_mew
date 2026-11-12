@@ -105,6 +105,40 @@ jobs:
             || { echo "ERROR: SUSFS priority uid filter not enabled"; exit 1; }
           echo "SUSFS and KPM confirmed in out/.config"
 
+      - name: Verify ipset is built in
+        run: |
+          set -e
+          for sym in CONFIG_IP_SET CONFIG_IP_SET_BITMAP_IP CONFIG_IP_SET_BITMAP_IPMAC \
+                     CONFIG_IP_SET_BITMAP_PORT CONFIG_IP_SET_HASH_IP \
+                     CONFIG_IP_SET_HASH_IPMAC CONFIG_IP_SET_HASH_IPMARK \
+                     CONFIG_IP_SET_HASH_IPPORT CONFIG_IP_SET_HASH_IPPORTIP \
+                     CONFIG_IP_SET_HASH_IPPORTNET CONFIG_IP_SET_HASH_MAC \
+                     CONFIG_IP_SET_HASH_NET CONFIG_IP_SET_HASH_NETPORT \
+                     CONFIG_IP_SET_HASH_NETIFACE CONFIG_IP_SET_HASH_NETNET \
+                     CONFIG_IP_SET_HASH_NETPORTNET CONFIG_IP_SET_LIST_SET \
+                     CONFIG_NETFILTER_XT_SET; do
+            grep -qx "$sym=y" out/.config \
+              || { echo "ERROR: $sym missing from out/.config"; exit 1; }
+          done
+
+          # AnyKernel3 ships no .ko files, so these must be built in.
+          if grep -qE '^CONFIG_IP_SET(=|_[A-Z_]*)=m$' out/.config; then
+            echo "ERROR: ipset built as a module, the flashed image would lack it"
+            exit 1
+          fi
+
+          # A built-in ipset leaves its device_initcall entry and a core
+          # export in vmlinux. System.map spells initcalls as
+          # __initcall_<n>_<line>_<fn>6, so match the suffix only.
+          grep -qE '_ip_set_init6$' out/System.map \
+            || { echo "ERROR: ip_set device_initcall absent from System.map"; exit 1; }
+          grep -qE '_xt_set_init6$' out/System.map \
+            || { echo "ERROR: xt_set device_initcall absent from System.map"; exit 1; }
+          grep -q ' ip_set_test$' out/System.map \
+            || { echo "ERROR: ip_set_test absent from System.map"; exit 1; }
+
+          echo "ipset core, all set types and xt_set confirmed in Image.gz"
+
       - name: Collect build output
         run: |
           ls -la out/arch/arm64/boot/Image.gz out/System.map
