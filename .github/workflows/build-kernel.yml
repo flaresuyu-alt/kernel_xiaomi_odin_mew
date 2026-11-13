@@ -95,7 +95,7 @@ jobs:
           [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "ERROR: kernel build failed"; exit 1; }
 
           echo "--- KernelSU / SUSFS ---"
-          grep -iE 'kernelsu|susfs|kpm' build.log | head -20 || true
+          grep -iE 'kernelsu|susfs|kpm|nomount' build.log | head -20 || true
 
           grep -q 'CONFIG_KSU_SUSFS=y' out/.config \
             || { echo "ERROR: SUSFS not enabled"; exit 1; }
@@ -138,6 +138,31 @@ jobs:
             || { echo "ERROR: ip_set_test absent from System.map"; exit 1; }
 
           echo "ipset core, all set types and xt_set confirmed in Image.gz"
+
+      - name: Verify NoMount is built in
+        run: |
+          set -e
+          grep -qx 'CONFIG_NOMOUNT=y' out/.config \
+            || { echo "ERROR: CONFIG_NOMOUNT not enabled"; exit 1; }
+
+          # AnyKernel3 ships no .ko files, so NoMount must be built in.
+          if grep -qE '^CONFIG_NOMOUNT=m$' out/.config; then
+            echo "ERROR: NoMount built as a module, the flashed image would lack it"
+            exit 1
+          fi
+
+          # A built-in fs_initcall leaves a __initcall_<n>_<line>_<fn>5 entry.
+          grep -qE '_nomount_init5$' out/System.map \
+            || { echo "ERROR: nomount fs_initcall absent from System.map"; exit 1; }
+
+          # Address-taken callbacks survive -O3 inlining; these two prove the
+          # key-type handler and the VFS lookup hook were actually emitted.
+          grep -qE ' nm_key_preparse$' out/System.map \
+            || { echo "ERROR: nm_key_preparse absent from System.map"; exit 1; }
+          grep -qE ' nm_hijacked_lookup$' out/System.map \
+            || { echo "ERROR: nm_hijacked_lookup absent from System.map"; exit 1; }
+
+          echo "NoMount v22 confirmed built into Image.gz"
 
       - name: Collect build output
         run: |
