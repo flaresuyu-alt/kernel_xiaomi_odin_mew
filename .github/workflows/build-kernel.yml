@@ -189,11 +189,14 @@ jobs:
               || { echo "ERROR: __tracepoint_$sym missing from System.map"; exit 1; }
           done
 
-          # These are address-taken in the workqueue and netfilter callbacks.
+          # These two carry the netlink and netfilter paths. Both have external
+          # linkage on purpose: full LTO internalises static functions and
+          # renames them with a .llvm.<hash> suffix, so anchoring a static
+          # symbol at end of line would fail on a perfectly good build.
           grep -qE ' rkx_send_message$' out/System.map \
             || { echo "ERROR: rkx_send_message absent from System.map"; exit 1; }
-          grep -qE ' rkx_nf_local_in$' out/System.map \
-            || { echo "ERROR: rkx_nf_local_in absent from System.map"; exit 1; }
+          grep -qE ' rkx_register_netfilter$' out/System.map \
+            || { echo "ERROR: rkx_register_netfilter absent from System.map"; exit 1; }
 
           echo "ReKernel-X core, initcall and 4 vendor hooks confirmed in Image.gz"
 
