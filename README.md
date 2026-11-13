@@ -3,7 +3,7 @@
 小米 MIX 4（`odin` / SM8350）的 LineageOS 24.0 内核，在 [Inkypen79/kernel_xiaomi_odin](https://github.com/Inkypen79/kernel_xiaomi_odin) 基线之上集成
 SukiSU-Ultra、SUSFS、ReKernel-X、ipset 与 NoMount。
 
-> **个人自用内核**，非 LineageOS 官方产物，不提供任何形式的担保。刷机风险自负。
+> **纯个人自用内核**，不提供任何形式的担保。刷机风险自负。
 
 ## 基本信息
 
