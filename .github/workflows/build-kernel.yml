@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - lineage-24.0
+      - rekernel-x
     paths-ignore:
       - 'tools/**'
       - '.github/workflows/build-probe.yml'
@@ -163,6 +164,38 @@ jobs:
             || { echo "ERROR: nm_hijacked_lookup absent from System.map"; exit 1; }
 
           echo "NoMount v22 confirmed built into Image.gz"
+
+      - name: Verify ReKernel-X is built in
+        run: |
+          set -e
+          grep -qx 'CONFIG_REKERNEL_X=y' out/.config \
+            || { echo "ERROR: CONFIG_REKERNEL_X not enabled"; exit 1; }
+
+          # AnyKernel3 ships no .ko files, so ReKernel-X must be built in.
+          if grep -qE '^CONFIG_REKERNEL_X=m$' out/.config; then
+            echo "ERROR: ReKernel-X built as a module, the flashed image would lack it"
+            exit 1
+          fi
+
+          # A built-in late_initcall leaves a __initcall_<n>_<line>_<fn>7 entry.
+          grep -qE '_rkx_init7$' out/System.map \
+            || { echo "ERROR: rkx late_initcall absent from System.map"; exit 1; }
+
+          # The four exported vendor hooks are the only bridge into binder and
+          # signal; without them the driver loads but observes nothing.
+          for sym in android_vh_binder_trans android_vh_binder_reply \
+                     android_vh_binder_alloc_new_buf_locked android_vh_do_send_sig_info; do
+            grep -q " __tracepoint_$sym$" out/System.map \
+              || { echo "ERROR: __tracepoint_$sym missing from System.map"; exit 1; }
+          done
+
+          # These are address-taken in the workqueue and netfilter callbacks.
+          grep -qE ' rkx_send_message$' out/System.map \
+            || { echo "ERROR: rkx_send_message absent from System.map"; exit 1; }
+          grep -qE ' rkx_nf_local_in$' out/System.map \
+            || { echo "ERROR: rkx_nf_local_in absent from System.map"; exit 1; }
+
+          echo "ReKernel-X core, initcall and 4 vendor hooks confirmed in Image.gz"
 
       - name: Collect build output
         run: |
