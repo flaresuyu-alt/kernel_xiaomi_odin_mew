@@ -47,10 +47,12 @@
 #include <linux/cgroup.h>
 #include <linux/audit.h>
 #include <linux/oom.h>
-#include <trace/hooks/signal.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/signal.h>
+
+#undef CREATE_TRACE_POINTS
+#include <trace/hooks/signal.h>
 
 #include <asm/param.h>
 #include <linux/uaccess.h>
