@@ -98,7 +98,7 @@ jobs:
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 odin_defconfig
           release="$(make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease)"
           echo "kernelrelease: $release"
-          test "$release" = "5.4.302-mew-extra" \
+          test "$release" = "5.4.302-kosmos-extra" \
             || { echo "ERROR: unexpected kernelrelease: $release"; exit 1; }
 
       - name: Build Image.gz and dtbs
