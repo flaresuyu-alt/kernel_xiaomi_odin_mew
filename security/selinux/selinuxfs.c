@@ -48,18 +48,17 @@
  * builds on 5.10+: it swaps selinux_state->status_page for fake_status. */
 extern struct page *fake_status;
 extern struct static_key_false fake_status_initialize_key;
+extern void initialize_fake_status(void);
+#endif
+/*
+ * The /context and /access write wrappers below only use
+ * susfs_security_context_str_to_sid() and susfs_security_compute_av_user(),
+ * both fully implemented for 5.4 in ss/services.c. Keep their gate controlled
+ * by the feature handler so type-existence probes still fail with -EINVAL for
+ * SUS types, while the manager can turn the hiding off.
+ */
 extern bool ksu_selinux_hide_running __read_mostly;
 extern bool ksu_selinux_hide_enabled __read_mostly;
-extern void initialize_fake_status(void);
-#else
-/* No status page spoof on 5.4, but the /context and /access write wrappers
- * below only use susfs_security_context_str_to_sid() and
- * susfs_security_compute_av_user(), both fully implemented for 5.4 in
- * ss/services.c. Keep their gate open so type-existence probes still fail
- * with -EINVAL for SUS types instead of being answered from the real policy.
- */
-#define ksu_selinux_hide_running true
-#endif
 extern int susfs_security_context_str_to_sid(struct selinux_state *state,
 				const char *scontext, u32 *sid, gfp_t gfp);
 extern void susfs_security_compute_av_user(struct selinux_state *state,
