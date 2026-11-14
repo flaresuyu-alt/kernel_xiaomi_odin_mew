@@ -348,6 +348,12 @@ KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
 KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
 export VERSION PATCHLEVEL SUBLEVEL KERNELRELEASE KERNELVERSION
 
+# CONFIG_LOCALVERSION is authoritative. Setting LOCALVERSION (even to an
+# empty value) stops scripts/setlocalversion from appending "+" to the
+# release string on this non-tagged git tree.
+LOCALVERSION =
+export LOCALVERSION
+
 include scripts/subarch.include
 
 # Cross compiling and selecting different set of gcc/bin-utils

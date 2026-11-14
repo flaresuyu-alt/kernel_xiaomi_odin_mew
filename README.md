@@ -11,7 +11,7 @@ SukiSU-Ultra、SUSFS、ReKernel-X、ipset 与 NoMount。
 |---|---|
 | 设备 | Xiaomi MIX 4（`odin`、`2106118C`） |
 | 平台 | Qualcomm SM8350 (lahaina) |
-| 内核版本 | `5.4.302-inkypen-v2-ksun` |
+| 内核版本 | `5.4.302-mew-extra` |
 | 系统基线 | LineageOS 24.0（Android 15） |
 | 内核基线 | CAF `msm-5.4`，内核 5.4.302 |
 | 构建 | GitHub Actions，`odin_defconfig`，clang r416183b |
@@ -94,6 +94,6 @@ fastboot flash boot boot.img
 
 ## 备注
 
-- `CONFIG_LOCALVERSION` 为 `-inkypen-v2-ksun`，沿用自上游基线。
+- `CONFIG_LOCALVERSION` 为 `-mew-extra`；`Makefile` 显式设置空的 `LOCALVERSION`，避免 setlocalversion 在非 tagged 树上追加 `+`。
 - SUSFS 在 `fs/` 下的源码未附 SPDX 头，为上游一贯风格；许可证以 [simonpunk/susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) 的 `LICENSE` 为准。
 - 本仓库仅作个人使用与留档，不接受功能请求，不保证跟进上游更新。
