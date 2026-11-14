@@ -55,6 +55,9 @@ jobs:
           # this tree needs are kept as a real patch file so the same tree can
           # be built locally without replaying the CI-only sed/perl pipeline.
           git -C KernelSU apply --verbose ../patches/sukisu-ultra-5.4/0001-suki-pre510-compat.patch
+          # Restore the manager-visible SELinux hide feature on 5.4 without
+          # porting SukiSU's 5.10-only policy and status-page implementation.
+          git -C KernelSU apply --verbose ../patches/sukisu-ultra-5.4/0002-selinux-hide-5.4.patch
 
           echo '--- verification ---'
           ! grep -q '<linux/static_call.h>' KernelSU/kernel/kernel_includes.h
@@ -62,7 +65,11 @@ jobs:
           grep -q 'config KSU_SUSFS_PRIORITY_UID_FILTER' KernelSU/kernel/Kconfig
           grep -q 'ksu_cs_vdso_clock_mode' KernelSU/kernel/extension/cpu_spoof.c
           test "$(grep -c 'susfs_set_batch_sid' KernelSU/kernel/selinux/rules.c)" -eq 2
+          grep -q 'feature/selinux_hide_compat.c' KernelSU/kernel/ksu_main.c
+          grep -q 'ksu_register_feature_handler(&selinux_hide_handler)' KernelSU/kernel/feature/selinux_hide_compat.c
+          grep -q 'ksu_selinux_hide_status_page' KernelSU/kernel/feature/selinux_hide_compat.c
           echo "all five pre-5.10 adaptations present"
+          echo "5.4 SELinux hide feature handler and status page present"
 
       - name: Unshallow SukiSU submodule
         run: |
