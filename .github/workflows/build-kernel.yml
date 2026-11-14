@@ -68,8 +68,11 @@ jobs:
           grep -q 'feature/selinux_hide_compat.c' KernelSU/kernel/ksu_main.c
           grep -q 'ksu_register_feature_handler(&selinux_hide_handler)' KernelSU/kernel/feature/selinux_hide_compat.c
           grep -q 'ksu_selinux_hide_status_page' KernelSU/kernel/feature/selinux_hide_compat.c
+          grep -q 'KSU_FEATURE_AVC_SPOOF = 10003' KernelSU/kernel/include/uapi/feature.h
+          grep -q 'feature/avc_spoof_compat.c' KernelSU/kernel/ksu_main.c
           echo "all five pre-5.10 adaptations present"
           echo "5.4 SELinux hide feature handler and status page present"
+          echo "AVC spoof manager feature present"
 
       - name: Unshallow SukiSU submodule
         run: |

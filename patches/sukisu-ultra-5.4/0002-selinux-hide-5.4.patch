@@ -1,3 +1,84 @@
+diff --git a/kernel/feature/avc_spoof_compat.c b/kernel/feature/avc_spoof_compat.c
+new file mode 100644
+index 00000000..ec5bf1e9
+--- /dev/null
++++ b/kernel/feature/avc_spoof_compat.c
+@@ -0,0 +1,62 @@
++#include "avc_spoof_compat.h"
++
++#include <linux/jump_label.h>
++#include <linux/printk.h>
++
++#include "include/uapi/feature.h"
++#include "policy/feature.h"
++
++#ifdef CONFIG_KSU_SUSFS
++/*
++ * SUSFS owns the actual AVC audit hook in security/selinux/avc.c. Reuse its
++ * static key here so the manager can expose and toggle the same kernel path
++ * through KSU_FEATURE_AVC_SPOOF instead of duplicating a kprobe.
++ */
++extern struct static_key_false susfs_is_avc_log_spoofing_enabled;
++
++static int avc_spoof_feature_get(u64 *value)
++{
++    *value = static_key_enabled(&susfs_is_avc_log_spoofing_enabled) ? 1 : 0;
++    return 0;
++}
++
++static int avc_spoof_feature_set(u64 value)
++{
++    if (value)
++        static_branch_enable(&susfs_is_avc_log_spoofing_enabled);
++    else
++        static_branch_disable(&susfs_is_avc_log_spoofing_enabled);
++
++    pr_info("avc_spoof: SUSFS key set to %d\n", value != 0);
++    return 0;
++}
++
++static const struct ksu_feature_handler avc_spoof_handler = {
++    .feature_id = KSU_FEATURE_AVC_SPOOF,
++    .name = "avc_spoof",
++    .get_handler = avc_spoof_feature_get,
++    .set_handler = avc_spoof_feature_set,
++};
++
++void __init ksu_avc_spoof_init(void)
++{
++    if (ksu_register_feature_handler(&avc_spoof_handler))
++        pr_err("avc_spoof: failed to register feature handler\n");
++    else
++        pr_info("avc_spoof: registered SUSFS-backed feature handler\n");
++}
++
++void __exit ksu_avc_spoof_exit(void)
++{
++    ksu_unregister_feature_handler(KSU_FEATURE_AVC_SPOOF);
++}
++#else
++void __init ksu_avc_spoof_init(void)
++{
++    pr_warn("avc_spoof: CONFIG_KSU_SUSFS is disabled; feature unavailable\n");
++}
++
++void __exit ksu_avc_spoof_exit(void)
++{
++}
++#endif
+diff --git a/kernel/feature/avc_spoof_compat.h b/kernel/feature/avc_spoof_compat.h
+new file mode 100644
+index 00000000..3f5afcbb
+--- /dev/null
++++ b/kernel/feature/avc_spoof_compat.h
+@@ -0,0 +1,7 @@
++#ifndef __KSU_H_AVC_SPOOF_COMPAT
++#define __KSU_H_AVC_SPOOF_COMPAT
++
++void __init ksu_avc_spoof_init(void);
++void __exit ksu_avc_spoof_exit(void);
++
++#endif
 diff --git a/kernel/feature/selinux_hide_compat.c b/kernel/feature/selinux_hide_compat.c
 new file mode 100644
 index 00000000..4a875968
@@ -130,38 +211,126 @@ index 00000000..4a875968
 +void ksu_selinux_hide_drop_backup_if_unused(void)
 +{
 +}
+diff --git a/kernel/include/uapi/feature.h b/kernel/include/uapi/feature.h
+index df0acd23..f7d66736 100644
+--- a/kernel/include/uapi/feature.h
++++ b/kernel/include/uapi/feature.h
+@@ -16,6 +16,9 @@ enum ksu_feature_id {
+      */
+     KSU_FEATURE_MOUNT_HIDE = 16,
+ 
++    /* AVC log spoofing, matching the upstream manager's feature namespace. */
++    KSU_FEATURE_AVC_SPOOF = 10003,
++
+     KSU_FEATURE_MAX
+ };
+ 
 diff --git a/kernel/ksu_main.c b/kernel/ksu_main.c
-index 8b1272d5..293b64d6 100644
+index 8b1272d5..9abb5777 100644
 --- a/kernel/ksu_main.c
 +++ b/kernel/ksu_main.c
-@@ -36,9 +36,7 @@
+@@ -36,9 +36,8 @@
  #include "feature/sucompat.h"
  #include "feature/sulog.h"
  #include "feature/mount_hide.h"
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
  #include "feature/selinux_hide.h"
 -#endif
++#include "feature/avc_spoof_compat.h"
  #include "feature/shell_su_adb_only.h"
  #include "runtime/ksud.h"
  #include "sulog/event.h"
-@@ -116,6 +114,8 @@
+@@ -116,7 +115,10 @@
  #include "feature/sulog.c"
  #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
  #include "feature/selinux_hide.c"
 +#else
 +#include "feature/selinux_hide_compat.c"
  #endif
++#include "feature/avc_spoof_compat.c"
  #include "feature/shell_su_adb_only.c"
  #include "feature/mount_hide.c"
-@@ -187,9 +187,7 @@ int __init kernelsu_init(void)
+ #include "runtime/ksud.c"
+@@ -187,9 +189,9 @@ int __init kernelsu_init(void)
  
      ksu_shell_su_adb_only_init();
  
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
      ksu_selinux_hide_init();
 -#endif
++
++    ksu_avc_spoof_init();
  
      ksu_kernel_umount_init();
+ 
+diff --git a/kernel/policy/feature.c b/kernel/policy/feature.c
+index 05ae1636..5f307a86 100644
+--- a/kernel/policy/feature.c
++++ b/kernel/policy/feature.c
+@@ -10,14 +10,15 @@ static const char *const feature_names[KSU_FEATURE_MAX] = {
+     [KSU_FEATURE_SELINUX_HIDE] = "selinux_hide",
+     [KSU_FEATURE_SHELL_SU_ADB_ONLY] = "shell_su_adb_only",
+     [KSU_FEATURE_MOUNT_HIDE] = "mount_hide",
++    [KSU_FEATURE_AVC_SPOOF] = "avc_spoof",
+ };
+ 
+ // Features forced by boot config. Written only while parsing module params
+ // (before kernelsu_init), read-only afterwards.
+ static u64 forced_values[KSU_FEATURE_MAX];
+-static DECLARE_BITMAP(forced_mask, KSU_FEATURE_MAX);
++static DECLARE_BITMAP(feature_forced_mask, KSU_FEATURE_MAX);
+ // Forced features whose value has not been applied successfully yet
+-static DECLARE_BITMAP(forced_pending, KSU_FEATURE_MAX);
++static DECLARE_BITMAP(feature_forced_pending, KSU_FEATURE_MAX);
+ 
+ static int parse_feature_id(const char *name, u32 *id)
+ {
+@@ -78,8 +79,8 @@ static int force_feature_param_set(const char *val, const struct kernel_param *k
+         }
+ 
+         forced_values[id] = value;
+-        set_bit(id, forced_mask);
+-        set_bit(id, forced_pending);
++        set_bit(id, feature_forced_mask);
++        set_bit(id, feature_forced_pending);
+         pr_info("feature: %s (id=%u) forced to %llu\n", feature_names[id], id, value);
+     }
+ 
+@@ -205,7 +206,7 @@ int ksu_set_feature(u32 feature_id, u64 value)
+         return -EINVAL;
+     }
+ 
+-    if (test_bit(feature_id, forced_mask)) {
++    if (test_bit(feature_id, feature_forced_mask)) {
+         pr_warn("feature: feature %u is forced by boot config\n", feature_id);
+         return -EPERM;
+     }
+@@ -238,7 +239,7 @@ out:
+ 
+ bool ksu_feature_is_forced(u32 feature_id)
+ {
+-    return feature_id < KSU_FEATURE_MAX && test_bit(feature_id, forced_mask);
++    return feature_id < KSU_FEATURE_MAX && test_bit(feature_id, feature_forced_mask);
+ }
+ 
+ void ksu_feature_apply_forced(void)
+@@ -249,7 +250,7 @@ void ksu_feature_apply_forced(void)
+ 
+     mutex_lock(&feature_mutex);
+ 
+-    for_each_set_bit (id, forced_pending, KSU_FEATURE_MAX) {
++    for_each_set_bit (id, feature_forced_pending, KSU_FEATURE_MAX) {
+         handler = feature_handlers[id];
+         if (!handler || !handler->set_handler) {
+             continue;
+@@ -261,7 +262,7 @@ void ksu_feature_apply_forced(void)
+             continue;
+         }
+ 
+-        clear_bit(id, forced_pending);
++        clear_bit(id, feature_forced_pending);
+         pr_info("feature: applied forced %s=%llu\n", feature_names[id], forced_values[id]);
+     }
  
 diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
 index 930aa461..f44bd314 100644
