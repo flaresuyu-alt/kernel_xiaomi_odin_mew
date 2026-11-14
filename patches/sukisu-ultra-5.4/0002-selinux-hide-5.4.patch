@@ -1,14 +1,19 @@
 diff --git a/kernel/feature/selinux_hide_compat.c b/kernel/feature/selinux_hide_compat.c
 new file mode 100644
-index 00000000..5eb7e0bf
+index 00000000..4a875968
 --- /dev/null
 +++ b/kernel/feature/selinux_hide_compat.c
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,126 @@
 +#include "selinux_hide.h"
 +
 +#include <linux/compiler.h>
++#include <linux/gfp.h>
++#include <linux/mm.h>
 +#include <linux/mutex.h>
 +#include <linux/printk.h>
++#include <linux/string.h>
++#include <security.h>
++#include <ss/services.h>
 +
 +/*
 + * SukiSU's feature/selinux_hide.c is deliberately limited to 5.10+ because
@@ -66,17 +71,60 @@ index 00000000..5eb7e0bf
 +    ksu_unregister_feature_handler(KSU_FEATURE_SELINUX_HIDE);
 +}
 +
++static struct page *ksu_selinux_hide_fake_status;
++
++struct page *ksu_selinux_hide_status_page(struct selinux_state *state)
++{
++    struct selinux_kernel_status *status;
++    struct page *fake;
++
++    if (!state || !state->ss)
++        return NULL;
++
++    /*
++     * Make sure the real status page exists before taking status_lock:
++     * selinux_kernel_status_page() takes the same lock itself.
++     */
++    if (!state->ss->status_page)
++        selinux_kernel_status_page(state);
++
++    mutex_lock(&state->ss->status_lock);
++    fake = ksu_selinux_hide_fake_status;
++    if (!fake && state->ss->status_page) {
++        status = page_address(state->ss->status_page);
++        if (status->enforcing) {
++            fake = alloc_page(GFP_KERNEL | __GFP_ZERO);
++            if (!fake) {
++                pr_err("selinux_hide: failed to allocate 5.4 fake status page\n");
++                goto out;
++            }
++            memcpy(page_address(fake), status, sizeof(*status));
++            ksu_selinux_hide_fake_status = fake;
++            pr_info("selinux_hide: initialized 5.4 fake status page\n");
++        }
++    }
++out:
++    fake = ksu_selinux_hide_fake_status;
++    mutex_unlock(&state->ss->status_lock);
++    return fake;
++}
++
 +/*
-+ * The 5.4 path has no backup policy and no fake status page. These hooks
-+ * exist so the lifecycle calls can be shared with the 5.10 implementation
-+ * later without adding more version gates.
++ * The 5.4 path has no backup policy. The fake status page must be captured
++ * before apply_kernelsu_rules() changes the real policyload/sequence, so
++ * the second-stage hook initializes it here. selinuxfs also initializes it
++ * lazily on first app open as a fallback.
 + */
 +void ksu_selinux_hide_handle_second_stage(void)
 +{
++    if (READ_ONCE(ksu_selinux_hide_running))
++        (void)ksu_selinux_hide_status_page(&selinux_state);
 +}
 +
 +void ksu_selinux_hide_handle_post_fs_data(void)
 +{
++    if (READ_ONCE(ksu_selinux_hide_running))
++        (void)ksu_selinux_hide_status_page(&selinux_state);
 +}
 +
 +void ksu_selinux_hide_drop_backup_if_unused(void)
@@ -115,3 +163,47 @@ index 8b1272d5..293b64d6 100644
  
      ksu_kernel_umount_init();
  
+diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
+index 930aa461..f44bd314 100644
+--- a/kernel/runtime/ksud.c
++++ b/kernel/runtime/ksud.c
+@@ -55,9 +55,7 @@ void on_post_fs_data(void)
+     ksu_observer_init();
+     // sanity check, this may influence the performance
+     stop_input_hook();
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     ksu_selinux_hide_handle_post_fs_data();
+-#endif
+     // retry forced features which failed at second stage
+     ksu_feature_apply_forced();
+     ksu_extension_apply_forced();
+@@ -97,9 +95,7 @@ void on_boot_completed(void)
+     ksu_boot_completed = true;
+     pr_info("on_boot_completed!\n");
+     track_throne(true);
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     ksu_selinux_hide_drop_backup_if_unused();
+-#endif
+ }
+ 
+ #define MAX_ARG_STRINGS 0x7FFFFFFF
+@@ -204,9 +200,7 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+ #ifndef KSU_NO_PREINIT
+                 ksu_preinit_release();
+ #endif
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+                 ksu_selinux_hide_handle_second_stage();
+-#endif
+                 apply_kernelsu_rules();
+                 cache_sid();
+                 setup_ksu_cred();
+@@ -284,9 +278,7 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+ #ifndef KSU_NO_PREINIT
+             ksu_preinit_release();
+ #endif
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+             ksu_selinux_hide_handle_second_stage();
+-#endif
+             apply_kernelsu_rules();
+             cache_sid();
+             setup_ksu_cred();

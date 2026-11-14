@@ -49,6 +49,9 @@
 extern struct page *fake_status;
 extern struct static_key_false fake_status_initialize_key;
 extern void initialize_fake_status(void);
+#else
+/* The 5.4 compatibility handler owns the fake status page instead. */
+extern struct page *ksu_selinux_hide_status_page(struct selinux_state *state);
 #endif
 /*
  * The /context and /access write wrappers below only use
@@ -252,6 +255,14 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	if (likely(current_uid().val >= 10000 && ksu_selinux_hide_running)) {
 		void *data = fake_status;
+		if (data) {
+			filp->private_data = data;
+			return 0;
+		}
+	}
+#else
+	if (likely(current_uid().val >= 10000 && ksu_selinux_hide_running)) {
+		void *data = ksu_selinux_hide_status_page(fsi->state);
 		if (data) {
 			filp->private_data = data;
 			return 0;
