@@ -232,7 +232,7 @@ jobs:
           ls -la odin-ksu-*.zip
 
       - name: Upload kernel image, dtbs and System.map
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: odin-kernel-${{ github.sha }}
           path: |
@@ -243,7 +243,7 @@ jobs:
           retention-days: 30
 
       - name: Upload AnyKernel3 flashable zip
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: odin-anykernel3-${{ github.sha }}
           path: odin-ksu-*.zip
