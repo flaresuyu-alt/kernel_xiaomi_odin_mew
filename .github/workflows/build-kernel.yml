@@ -170,6 +170,8 @@ jobs:
       - name: Verify NoMount is built in
         run: |
           set -e
+          grep -q 'NOMOUNT_BASE_VERSION "23"' fs/nomount/nomount.h \
+            || { echo "ERROR: NoMount v23 header missing"; exit 1; }
           grep -qx 'CONFIG_NOMOUNT=y' out/.config \
             || { echo "ERROR: CONFIG_NOMOUNT not enabled"; exit 1; }
 
@@ -190,7 +192,7 @@ jobs:
           grep -qE ' nm_hijacked_lookup$' out/System.map \
             || { echo "ERROR: nm_hijacked_lookup absent from System.map"; exit 1; }
 
-          echo "NoMount v22 confirmed built into Image.gz"
+          echo "NoMount v23 (v2.3.0) confirmed built into Image.gz"
 
       - name: Verify ReKernel-X is built in
         run: |
