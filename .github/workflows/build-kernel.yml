@@ -42,45 +42,37 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Verify SukiSU sources
+      - name: Verify SukiSU-Nova sources
         run: |
           ls -la KernelSU/kernel | head -15
           readlink drivers/kernelsu
-          test -f fs/susfs.c && grep -q 'SUSFS_VERSION "v2.3.0"' include/linux/susfs.h && echo "SUSFS 2.3.0 present"
+          test -f fs/susfs.c && grep -q 'SUSFS_VERSION "v2.4.0"' include/linux/susfs.h && echo "SUSFS 2.4.0 present"
+          grep -q 'CMD_SUSFS_SET_SUS_PATH_UID_FILTER' include/linux/susfs_def.h && echo "SUSFS UID filter IOCTL present"
 
-      - name: Patch SukiSU for pre-5.10
+      - name: Patch SukiSU-Nova for 5.4
         run: |
           set -e
-          # SukiSU's builtin branch assumes a 5.10+ kernel. The five adaptations
-          # this tree needs are kept as a real patch file so the same tree can
-          # be built locally without replaying the CI-only sed/perl pipeline.
-          git -C KernelSU apply --verbose ../patches/sukisu-ultra-5.4/0001-suki-pre510-compat.patch
-          # Restore the manager-visible SELinux hide feature on 5.4 without
-          # porting SukiSU's 5.10-only policy and status-page implementation.
-          git -C KernelSU apply --verbose ../patches/sukisu-ultra-5.4/0002-selinux-hide-5.4.patch
+          git -C KernelSU apply --verbose ../patches/sukisu-nova-5.4/0001-nova-builtin-new-5.4-fixes.patch
 
           echo '--- verification ---'
-          ! grep -q '<linux/static_call.h>' KernelSU/kernel/kernel_includes.h
-          grep -q 'DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled)' KernelSU/kernel/feature/sucompat.c
-          grep -q 'config KSU_SUSFS_PRIORITY_UID_FILTER' KernelSU/kernel/Kconfig
-          grep -q 'ksu_cs_vdso_clock_mode' KernelSU/kernel/extension/cpu_spoof.c
-          test "$(grep -c 'susfs_set_batch_sid' KernelSU/kernel/selinux/rules.c)" -eq 2
-          grep -q 'feature/selinux_hide_compat.c' KernelSU/kernel/ksu_main.c
-          grep -q 'ksu_register_feature_handler(&selinux_hide_handler)' KernelSU/kernel/feature/selinux_hide_compat.c
-          grep -q 'ksu_selinux_hide_status_page' KernelSU/kernel/feature/selinux_hide_compat.c
-          grep -q 'KSU_FEATURE_AVC_SPOOF = 10003' KernelSU/kernel/include/uapi/feature.h
-          grep -q 'feature/avc_spoof_compat.c' KernelSU/kernel/ksu_main.c
-          echo "all five pre-5.10 adaptations present"
-          echo "5.4 SELinux hide feature handler and status page present"
-          echo "AVC spoof manager feature present"
+          grep -q 'VERSION_OFFSET  := 996' KernelSU/kernel/Makefile
+          grep -q 'KSU_PACKAGE_NAME := com.sukisu.nova' KernelSU/kernel/Makefile
+          grep -q '#ifndef CONFIG_KSU_SUSFS' KernelSU/kernel/hook/lsm_hooks_list.c
+          grep -q 'susfs_is_avc_log_spoofing_enabled' KernelSU/kernel/feature/avc_spoof.c
+          grep -q 'susfs_set_sus_path_uid_filter' fs/susfs.c
+          echo "SukiSU-Nova 5.4 patches and SUSFS v2.4.0 verified"
 
       - name: Unshallow SukiSU submodule
         run: |
           set -e
           if [ "$(git -C KernelSU rev-parse --is-shallow-repository)" = "true" ]; then
-            git -C KernelSU fetch --unshallow --tags origin builtin
+            git -C KernelSU fetch --unshallow --tags origin +refs/heads/builtin-new:refs/remotes/origin/builtin-new +refs/heads/main:refs/remotes/origin/main
+          else
+            git -C KernelSU fetch --tags origin +refs/heads/main:refs/remotes/origin/main
           fi
-          echo "commit count: $(git -C KernelSU rev-list --count HEAD)"
+          main_count="$(git -C KernelSU rev-list --count origin/main)"
+          echo "origin/main commit count: $main_count"
+          [ "$main_count" -ge 4000 ] || { echo "ERROR: expected >= 4000 commits on origin/main"; exit 1; }
 
       - name: Install build dependencies
         run: |
@@ -103,23 +95,43 @@ jobs:
 
       - name: Build Image.gz and dtbs
         run: |
-          # SukiSU version comes from the submodule commit count; SUSFS 2.3.0 is
-          # already applied and enabled via CONFIG_KSU_SUSFS, KPM via CONFIG_KPM.
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
+          # SukiSU-Nova version comes from the main commit count; SUSFS 2.4.0 is
+          # built in and enabled via CONFIG_KSU_SUSFS. KPM stays disabled (< 5.10).
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 KSU_BUILD_REF=builtin-new -j"$(nproc)" Image.gz dtbs 2>&1 | tee build.log
 
           # tee masks make's exit status
           [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "ERROR: kernel build failed"; exit 1; }
 
-          echo "--- KernelSU / SUSFS ---"
-          grep -iE 'kernelsu|susfs|kpm|nomount' build.log | head -20 || true
+          echo "--- KernelSU-Nova / SUSFS ---"
+          grep -iE 'sukisu|kernelsu|susfs|kpm|nomount' build.log | head -30 || true
 
-          grep -q 'CONFIG_KSU_SUSFS=y' out/.config \
-            || { echo "ERROR: SUSFS not enabled"; exit 1; }
-          grep -q 'CONFIG_KPM=y' out/.config \
-            || { echo "ERROR: KPM not enabled"; exit 1; }
-          grep -q 'CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y' out/.config \
-            || { echo "ERROR: SUSFS priority uid filter not enabled"; exit 1; }
-          echo "SUSFS and KPM confirmed in out/.config"
+          ksu_ver=$(sed -n 's/.*-- SukiSU-Nova version: \([0-9]*\).*/\1/p' build.log | head -n1)
+          echo "SukiSU-Nova version: ${ksu_ver:-missing}"
+          [ -n "$ksu_ver" ] && [ "$ksu_ver" -ge 32513 ] \
+            || { echo "ERROR: SukiSU-Nova version missing or < 32513"; exit 1; }
+          grep -q 'com.sukisu.nova' build.log \
+            || { echo "ERROR: com.sukisu.nova not found in build.log"; exit 1; }
+          grep -q 'SUSFS_VERSION: v2.4.0' build.log \
+            || { echo "ERROR: SUSFS_VERSION: v2.4.0 not found in build.log"; exit 1; }
+
+          for sym in CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_INLINE_HOOK \
+                     CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER; do
+            grep -qx "$sym=y" out/.config \
+              || { echo "ERROR: $sym not enabled"; exit 1; }
+          done
+          if grep -qx 'CONFIG_KPM=y' out/.config; then
+            echo "ERROR: CONFIG_KPM unexpectedly enabled on 5.4"
+            exit 1
+          fi
+
+          grep -qE '_kernelsu_init6$' out/System.map \
+            || { echo "ERROR: kernelsu initcall absent from System.map"; exit 1; }
+          for sym in susfs_init susfs_set_sus_path_uid_filter \
+                     susfs_security_context_to_sid_force initialize_fake_status; do
+            grep -q " $sym$" out/System.map \
+              || { echo "ERROR: $sym absent from System.map"; exit 1; }
+          done
+          echo "SukiSU-Nova, SUSFS v2.4.0 and core symbols confirmed in Image.gz"
 
       - name: Verify ipset is built in
         run: |

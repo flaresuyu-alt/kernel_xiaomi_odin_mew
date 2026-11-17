@@ -1922,6 +1922,10 @@ orig_flow:
 	/* execve succeeded */
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
+#ifdef CONFIG_KSU_SUSFS
+	if (unlikely(is_su_session))
+		(void)ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
+#endif // #ifdef CONFIG_KSU_SUSFS
 	rseq_execve(current);
 	acct_update_integrals(current);
 	task_numa_free(current, false);
@@ -1947,8 +1951,21 @@ out_unmark:
 	if (unlikely(is_su_session))
 		(void)ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
 #ifndef KSU_NO_PREINIT
-	if (unlikely(is_ksu_preinit_session))
-		(void)ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval, &preinit_fd);
+	if (unlikely(is_ksu_preinit_session)) {
+		if (ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval, &preinit_fd)) {
+			free_bprm(bprm);
+			bprm = NULL;
+			kfree(pathbuf);
+			pathbuf = NULL;
+			if (displaced) {
+				reset_files_struct(displaced);
+				displaced = NULL;
+			}
+			file = NULL;
+			is_ksu_preinit_session = false;
+			goto orig_flow;
+		}
+	}
 #endif // #ifndef KSU_NO_PREINIT
 #endif // #ifdef CONFIG_KSU_SUSFS
 

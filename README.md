@@ -6,8 +6,8 @@
 
 ## 集成特性（均内建）
 
-* **[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)**：内核级 Root（含 KPM）
-* **[SUSFS](https://gitlab.com/simonpunk/susfs4ksu)**：路径、挂载、kstat 等隐藏（v2.3.0）
+* **[SukiSU-Nova](https://github.com/SukiSU-Nova/SukiSU-Nova)**：内核级 Root（`builtin-new`）
+* **[SUSFS](https://gitlab.com/simonpunk/susfs4ksu)**：路径、挂载、kstat 等隐藏（v2.4.0）
 * **[ReKernel-X](https://github.com/myflavor/ReKernel-X)**：冻结进程事件上报（v2.0-odin）
 * **[NoMount](https://github.com/maxsteeel/nomount)**：VFS 层路径重定向（协议 v22）
 * **[ipset](https://ipset.netfilter.org/)**：内核态 IP 集合

@@ -39,9 +39,9 @@
 #include <linux/bitops.h>
 #include <linux/init_task.h>
 #include <linux/uaccess.h>
-#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
+#ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
-#endif
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 #include "internal.h"
 #include "mount.h"
@@ -50,9 +50,9 @@
 #include <trace/events/namei.h>
 
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-extern bool susfs_is_inode_sus_path(struct inode *inode);
+extern __attribute__((hot)) bool susfs_is_inode_sus_path(struct inode *inode);
 extern const struct qstr susfs_fake_qstr_name;
-#endif
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 extern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);
 #endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
@@ -1982,6 +1982,11 @@ static int walk_component(struct nameidata *nd, int flags)
 	if (unlikely(err <= 0)) {
 		if (err < 0)
 			return err;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		if (nd->state & ND_STATE_LOOKUP_LAST) {
+			nd->flags |= ND_FLAGS_LOOKUP_LAST;
+		}
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 		path.dentry = lookup_slow(&nd->last, nd->path.dentry,
 					  nd->flags);
 		if (IS_ERR(path.dentry))
@@ -2157,11 +2162,6 @@ EXPORT_SYMBOL(hashlen_string);
 
 /*
  * Calculate the length and hash of the path component, and
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		if (nd->state & ND_STATE_LOOKUP_LAST) {
-			nd->flags |= ND_FLAGS_LOOKUP_LAST;
-		}
-#endif
  * return the "hash_len" as the result.
  */
 static inline u64 hash_name(const void *salt, const char *name)
@@ -3330,9 +3330,6 @@ static int atomic_open(struct nameidata *nd, struct dentry *dentry,
 		open_flag |= O_DIRECTORY;
 
 	file->f_path.dentry = DENTRY_NOT_SET;
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	nd->state |= ND_STATE_OPEN_LAST;
-#endif
 	file->f_path.mnt = nd->path.mnt;
 	error = dir->i_op->atomic_open(dir, dentry, file,
 				       open_to_namei_flags(open_flag), mode);
@@ -3558,6 +3555,10 @@ static int do_last(struct nameidata *nd,
 	struct inode *inode;
 	struct path path;
 	int error;
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	nd->state |= ND_STATE_OPEN_LAST;
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 
 	nd->flags &= ~LOOKUP_PARENT;
 	nd->flags |= op->intent;

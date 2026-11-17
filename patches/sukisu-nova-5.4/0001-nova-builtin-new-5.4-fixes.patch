@@ -1,0 +1,119 @@
+diff --git a/kernel/Makefile b/kernel/Makefile
+index 0745495f..b16558b5 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -17,7 +17,7 @@ REPO_NAME   := SukiSU-Nova
+ REPO_BRANCH := main
+ 
+ VERSION_BASE    := 30000
+-VERSION_OFFSET  := 4001
++VERSION_OFFSET  := 996
+ 
+ GIT_BIN  := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin git
+ CURL_BIN := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin curl
+@@ -26,9 +26,9 @@ KSU_SRC := $(if $(filter $(srctree),$(src)),$(src),$(srctree)/$(src))
+ KSU_SRC := $(if $(wildcard $(KSU_SRC)/../.git),$(KSU_SRC),$(MDIR))
+ 
+ git_short_sha    = $(shell cd $(KSU_SRC) && $(GIT_BIN) rev-parse --short=8 HEAD 2>/dev/null)
+-git_branch       = $(shell cd $(KSU_SRC) && $(GIT_BIN) rev-parse --abbrev-ref HEAD 2>/dev/null)
+-git_commit_count = $(shell cd $(KSU_SRC) && $(GIT_BIN) rev-list --count $(REPO_BRANCH) 2>/dev/null)
+-git_latest_tag   = $(shell cd $(KSU_SRC) && $(GIT_BIN) describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
++git_branch       = $(or $(KSU_BUILD_REF),$(shell cd $(KSU_SRC) && $(GIT_BIN) rev-parse --abbrev-ref HEAD 2>/dev/null))
++git_commit_count = $(shell cd $(KSU_SRC) && ($(GIT_BIN) rev-list --count $(REPO_BRANCH) 2>/dev/null || $(GIT_BIN) rev-list --count origin/$(REPO_BRANCH) 2>/dev/null))
++git_latest_tag   = $(shell cd $(KSU_SRC) && $(GIT_BIN) describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null | sed 's/^v//')
+ 
+ $(shell cd $(KSU_SRC) 2>/dev/null && [ -f ../.git/shallow ] && $(GIT_BIN) fetch --unshallow 2>/dev/null)
+ 
+@@ -36,7 +36,7 @@ GITHUB_API_BASE  := https://api.github.com/repos/$(REPO_OWNER)/$(REPO_NAME)
+ KSU_GITHUB_VER   := $(shell $(CURL_BIN) -s "$(GITHUB_API_BASE)/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+ GITHUB_COMMITS   := $(shell $(CURL_BIN) -sI "$(GITHUB_API_BASE)/commits?sha=$(REPO_BRANCH)&per_page=1" 2>/dev/null | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p')
+ LOCAL_COUNT     := $(if $(GITHUB_COMMITS),$(GITHUB_COMMITS),$(git_commit_count))
+-KSU_VERSION     := $(if $(LOCAL_COUNT),$(shell expr $(VERSION_BASE) + $(LOCAL_COUNT) - $(VERSION_OFFSET)),41000)
++KSU_VERSION     := $(if $(LOCAL_COUNT),$(shell expr $(VERSION_BASE) + $(LOCAL_COUNT) + $(VERSION_OFFSET)),35000)
+ VERSION_TAG     := $(or $(KSU_GITHUB_VER),$(git_latest_tag),3.0.0)
+ KSU_VERSION_FULL := $(if $(call git_short_sha),v$(VERSION_TAG)-$(call git_short_sha)@$(call git_branch),v$(VERSION_TAG)-$(REPO_NAME)-unknown@unknown)
+ $(info -- $(REPO_NAME) version: $(KSU_VERSION) [$(KSU_VERSION_FULL)])
+diff --git a/kernel/feature/avc_spoof.c b/kernel/feature/avc_spoof.c
+index 03da31eb..57ec732c 100644
+--- a/kernel/feature/avc_spoof.c
++++ b/kernel/feature/avc_spoof.c
+@@ -39,7 +39,7 @@ void ksu_avc_spoof_rewrite_tsid(u32 *tsid)
+     if (!priv_app_sid || (!su_sid && !ksu_sid))
+         return;
+ 
+-    if (*tsid == su_sid || *tsid == ksu_sid)
++    if ((su_sid && *tsid == su_sid) || (ksu_sid && *tsid == ksu_sid))
+         *tsid = priv_app_sid;
+ }
+ 
+@@ -73,7 +73,7 @@ static int avc_spoof_slow_avc_audit_pre_handler(struct kprobe *p, struct pt_regs
+     tsid = (u32 *)&PT_REGS_PARM2(regs);
+ #endif
+ 
+-    if (*tsid == su_sid || *tsid == ksu_sid) {
++    if ((su_sid && *tsid == su_sid) || (ksu_sid && *tsid == ksu_sid)) {
+         pr_info_ratelimited("avc_spoof: replace tsid %u with %u\n", *tsid, priv_app_sid);
+         *tsid = priv_app_sid;
+     }
+@@ -112,16 +112,21 @@ static void destroy_avc_kprobe(struct kprobe **kp_ptr)
+ }
+ #endif /* CONFIG_KPROBES */
+ 
++#ifdef CONFIG_KSU_SUSFS
++extern struct static_key_false susfs_is_avc_log_spoofing_enabled;
++#endif
++
+ static int get_avc_sids(void)
+ {
+     int ret;
+ 
+     ret = security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &su_sid);
+     if (ret) {
++        su_sid = 0;
+         pr_info("avc_spoof: su SID not found\n");
+-        return ret;
++    } else {
++        pr_info("avc_spoof: su SID: %u\n", su_sid);
+     }
+-    pr_info("avc_spoof: su SID: %u\n", su_sid);
+ 
+     ret = security_secctx_to_secid("u:r:ksu:s0", strlen("u:r:ksu:s0"), &ksu_sid);
+     if (ret) {
+@@ -143,6 +148,9 @@ static int get_avc_sids(void)
+ 
+ void ksu_avc_spoof_disable(void)
+ {
++#ifdef CONFIG_KSU_SUSFS
++    static_branch_disable(&susfs_is_avc_log_spoofing_enabled);
++#endif
+ #ifdef CONFIG_KPROBES
+     pr_info("avc_spoof: unregister slow_avc_audit kprobe\n");
+     destroy_avc_kprobe(&avc_spoof_slow_avc_audit_kp);
+@@ -160,6 +168,9 @@ void ksu_avc_spoof_enable(void)
+         return;
+     }
+ 
++#ifdef CONFIG_KSU_SUSFS
++    static_branch_enable(&susfs_is_avc_log_spoofing_enabled);
++#endif
+ #ifdef CONFIG_KPROBES
+     if (!avc_spoof_slow_avc_audit_kp) {
+         pr_info("avc_spoof: register slow_avc_audit kprobe\n");
+diff --git a/kernel/hook/lsm_hooks_list.c b/kernel/hook/lsm_hooks_list.c
+index cd701912..497c9dea 100644
+--- a/kernel/hook/lsm_hooks_list.c
++++ b/kernel/hook/lsm_hooks_list.c
+@@ -361,11 +361,13 @@ static __init void ksu_lsm_hook_init(void)
+ #endif
+ 	LSM_HACK_INIT(inode_rename, ksu_inode_rename);
+ 
++#ifndef CONFIG_KSU_SUSFS
+ 	ksu_do_overload_setprocattr();
+ 	LSM_HACK_INIT(setprocattr, ksu_setprocattr);
+ 
+ 	ksu_do_overload_inode_setxattr();
+ 	LSM_HACK_INIT(inode_setxattr, ksu_inode_setxattr);
++#endif
+ 
+ #if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK) && !defined(CONFIG_KSU_SUSFS)
+ 	LSM_HACK_INIT(file_permission, ksu_file_permission);
